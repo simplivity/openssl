@@ -1,0 +1,218 @@
+description = 'Gradle wrapper for OpenSSL build'
+
+apply plugin: 'base'
+
+import org.gradle.internal.os.OperatingSystem
+
+buildscript {
+    ext.svtFunctionsVersion = '5.0.2'
+
+    repositories {
+        mavenLocal()
+        maven {
+            name "ArtifactoryRepo"
+            // see gradle.properties
+            url artifactoryUrl
+        }
+    }
+
+    dependencies {
+        classpath "org.ysb33r.gradle:gnumake:1.0.2"
+        classpath "com.simplivity.gradle.plugins:gradle-svtfunctions-plugin:$svtFunctionsVersion"
+    }
+}
+
+group = "openssl"
+
+apply plugin: 'com.simplivity.svt-functions'
+
+artifactoryPublish.skip = true
+
+artifactory {
+    publish {
+        defaults {
+            publications('OpenSSLNar')
+        }
+    }
+}
+
+[ 'Shared' ].each { type ->
+    [ 'Debug', 'RelWithDebInfo' ].each { mode ->
+        if (OperatingSystem.current().linux) {
+            tasks.create(name: "makeLinux${type}${mode}", group: 'Build') {
+                description = "Generates the Linux ${type} ${mode} configuration"
+                doLast {
+                    exec { executable './config' args 'shared no-idea no-mdc2 no-rc5 no-zlib enable-tlsext no-ssl2 enable-ec_nistp_64_gcc_128' }
+                    exec { executable 'make' args 'depend' }
+                    exec { executable 'make' }
+                }
+            }
+        } else {
+		//TODO
+        }
+    }
+}
+
+/*
+def configureMake(String mode, task makeTask) {
+    def libExt = 'so'
+    def type = 'Shared'
+
+    tasks.create("assemble${type}${mode}Nar", Zip).configure {
+        def clMode = mode == 'RelWithDebInfo' ? 'release' : mode
+
+        group = 'Build'
+        description = "Assembles a zip archive containing the OpenSSL Linux ${type} ${mode} library."
+        dependsOn makeTask
+
+        baseName = 'openssl'
+        classifier = "linux_x64-${type.toLowerCase()}-${clMode.toLowerCase()}"
+        extension = 'nar'
+        destinationDir = file("$buildDir/distributions")
+
+        from("$buildDir/include/openssl") {
+            into 'include'
+        }
+
+        from("$buildDir") {
+//TODO: add symlinks
+            include "libcrypto.$libExt"
+            include "libssl.$libExt"
+            into 'lib'
+        }
+    }
+}
+
+if (OperatingSystem.current().linux) {
+    ext.buildPlatform = 'linux_x64'
+    
+//    task makeSharedDebug()
+//    task makeSharedRelWithDebInfo()
+
+    configureMake('Debug',          makeLinuxSharedDebug)
+    configureMake('RelWithDebInfo', makeLinuxSharedRelWithDebInfo)
+} else {
+    ext.buildPlatform = 'windows_x64'
+//    configureMsBuild('Debug'         )
+//    configureMsBuild('RelWithDebInfo')
+}
+*/
+
+//assemble.dependsOn assembleSharedDebugNar
+//assemble.dependsOn assembleSharedRelWithDebInfoNar
+
+assemble.dependsOn makeLinuxSharedDebug
+assemble.dependsOn makeLinuxSharedRelWithDebInfo
+
+def ivyUrl = "${System.properties['user.home']}/.ivy/repository"
+if (project.hasProperty('ivyLocalUrl')) {
+    ivyUrl = project.ivyLocalUrl
+}
+
+
+publishing {
+    publications {
+        OpenSSLNar(IvyPublication) {
+            module 'openssl'
+            configurations {
+                "${buildPlatform}-shared-debug" {}
+                "${buildPlatform}-shared-release" {}
+                "default" {}
+            }
+/*
+            artifact(assembleSharedDebugNar) {
+                conf "${buildPlatform}-shared-debug"
+            }
+            artifact(assembleSharedRelWithDebInfoNar) {
+                conf "${buildPlatform}-shared-release"
+            }
+*/
+            descriptor.withXml {
+                asNode().info[0].appendNode('description', 'openssl library')
+                mergeIvyDescriptor(asNode())
+            }
+        }
+    }
+    repositories {
+        ivy {
+            name "IvyLocal"
+            url ivyUrl
+            layout 'gradle'
+        }
+    }
+}
+
+/*
+task makeSharedDebug {
+    doLast {
+        exec { executable './config' args 'shared no-idea no-mdc2 no-rc5 no-zlib enable-tlsext no-ssl2 enable-ec_nistp_64_gcc_128 -d' }
+        exec { executable 'make' args 'depend' }
+        exec { executable 'make' }
+    }
+}
+task makeSharedRelWithDebInfo {
+    doLast {
+        exec { executable './config' args 'shared no-idea no-mdc2 no-rc5 no-zlib enable-tlsext no-ssl2 enable-ec_nistp_64_gcc_128' }
+        exec { executable 'make' args 'depend' }
+        exec { executable 'make' }
+    }
+}
+*/
+def mergeIvyDescriptor(ivyModuleNode) {
+    // NOTE: This is controlled by the Jenkins job configuration!!!
+    // We use the "Copy Artifacts" plugin to make the sequentially
+    // building Linux build resulting ivy.xml available to the Windows
+    // builds to merge and consolidate the two descriptors.
+    def linuxIvy = rootProject.file('ivyDescriptor/ivy.xml')
+    if (linuxIvy.exists()) {
+        def ivyModule = new XmlSlurper().parse(linuxIvy)
+
+        mergeConfigurations(ivyModuleNode.configurations[0], ivyModule.configurations[0].childNodes())
+        mergePublications(ivyModuleNode.publications[0], ivyModule.publications[0].childNodes())
+    }
+}
+
+def mergeConfigurations(myConf, toBeMergedConf) {
+    toBeMergedConf.each {
+        if (it.attributes()['name'] == 'default') {
+            def myDef = myConf.children().find { it.@name == 'default' }
+            if (myDef) {
+                def mergingValue = it.attributes()['extends']
+                if (mergingValue) {
+                    if (myDef.@extends) {
+                        myDef.@extends = myDef.@extends + ',' + mergingValue
+                    } else {
+                        myDef.@extends = mergingValue
+                    }
+                }
+            } else {
+                myConf.appendNode(it.name(), it.attributes())
+            }
+        } else {
+            myConf.appendNode(it.name(), it.attributes())
+        }
+    }
+}
+
+
+def mergePublications(myPubs, linuxPubs) {
+    linuxPubs.each {
+        myPubs.appendNode(it.name(), fixupAttributes(it.attributes()))
+    }
+}
+
+// XML HACK! This does not seem like the best way but the result
+// proves it works. The Ivy descriptor is formatted as it should be.
+// For some reason the attributes map returned by the XMLSlurper nodes
+// has the names stringified which is unfortunate. The nodes we handle
+// can use a QName instead of a string in the map keys just the same.
+def fixupAttributes(attributes) {
+    def attr = [:]
+    attributes.each { k,v ->
+        if (k == '{http://ant.apache.org/ivy/maven}classifier') {
+            k = new groovy.xml.QName('http://ant.apache.org/ivy/maven', 'classifier', 'm')
+        }
+        attr.put(k, v)
+    }
+    return attr
+}
