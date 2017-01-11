@@ -42,10 +42,7 @@ artifactory {
             tasks.create(name: "makeLinux${type}${mode}", group: 'Build') {
                 description = "Generates the Linux ${type} ${mode} configuration"
                 doLast {
-                    exec { executable './config' args 'shared no-idea no-mdc2 no-rc5 no-zlib enable-tlsext no-ssl2 enable-ec_nistp_64_gcc_128' }
-                    exec { executable 'make' args 'depend' }
-                    exec { executable 'make' args 'clean' }
-                    exec { executable 'make' }
+                    exec { executable 'util/buildFOM.sh'}
                     exec { executable 'make' args 'test' }
                 }
             }
