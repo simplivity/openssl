@@ -44,7 +44,9 @@ artifactory {
                 doLast {
                     exec { executable './config' args 'shared no-idea no-mdc2 no-rc5 no-zlib enable-tlsext no-ssl2 enable-ec_nistp_64_gcc_128' }
                     exec { executable 'make' args 'depend' }
+                    exec { executable 'make' args 'clean' }
                     exec { executable 'make' }
+                    exec { executable 'make' args 'test' }
                 }
             }
         } else {
@@ -102,7 +104,7 @@ if (OperatingSystem.current().linux) {
 //assemble.dependsOn assembleSharedRelWithDebInfoNar
 
 assemble.dependsOn makeLinuxSharedDebug
-assemble.dependsOn makeLinuxSharedRelWithDebInfo
+//assemble.dependsOn makeLinuxSharedRelWithDebInfo
 
 def ivyUrl = "${System.properties['user.home']}/.ivy/repository"
 if (project.hasProperty('ivyLocalUrl')) {
