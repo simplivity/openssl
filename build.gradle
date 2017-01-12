@@ -42,66 +42,22 @@ artifactory {
             tasks.create(name: "makeLinux${type}${mode}", group: 'Build') {
                 description = "Generates the Linux ${type} ${mode} configuration"
                 doLast {
-                    exec { executable 'util/buildFOM.sh'}
+                    exec { executable 'util/buildFOM.sh' args "${type}", "${mode}"}
                     exec { executable 'make' args 'test' }
+                    exec { executable 'make' args 'install_sw' }
                 }
             }
         } else {
-		//TODO
+		//TODO: Windows support
         }
     }
 }
-
-/*
-def configureMake(String mode, task makeTask) {
-    def libExt = 'so'
-    def type = 'Shared'
-
-    tasks.create("assemble${type}${mode}Nar", Zip).configure {
-        def clMode = mode == 'RelWithDebInfo' ? 'release' : mode
-
-        group = 'Build'
-        description = "Assembles a zip archive containing the OpenSSL Linux ${type} ${mode} library."
-        dependsOn makeTask
-
-        baseName = 'openssl'
-        classifier = "linux_x64-${type.toLowerCase()}-${clMode.toLowerCase()}"
-        extension = 'nar'
-        destinationDir = file("$buildDir/distributions")
-
-        from("$buildDir/include/openssl") {
-            into 'include'
-        }
-
-        from("$buildDir") {
-//TODO: add symlinks
-            include "libcrypto.$libExt"
-            include "libssl.$libExt"
-            into 'lib'
-        }
-    }
-}
-
-if (OperatingSystem.current().linux) {
-    ext.buildPlatform = 'linux_x64'
-    
-//    task makeSharedDebug()
-//    task makeSharedRelWithDebInfo()
-
-    configureMake('Debug',          makeLinuxSharedDebug)
-    configureMake('RelWithDebInfo', makeLinuxSharedRelWithDebInfo)
-} else {
-    ext.buildPlatform = 'windows_x64'
-//    configureMsBuild('Debug'         )
-//    configureMsBuild('RelWithDebInfo')
-}
-*/
 
 //assemble.dependsOn assembleSharedDebugNar
 //assemble.dependsOn assembleSharedRelWithDebInfoNar
 
 assemble.dependsOn makeLinuxSharedDebug
-//assemble.dependsOn makeLinuxSharedRelWithDebInfo
+assemble.dependsOn makeLinuxSharedRelWithDebInfo
 
 def ivyUrl = "${System.properties['user.home']}/.ivy/repository"
 if (project.hasProperty('ivyLocalUrl')) {
@@ -141,22 +97,6 @@ publishing {
     }
 }
 
-/*
-task makeSharedDebug {
-    doLast {
-        exec { executable './config' args 'shared no-idea no-mdc2 no-rc5 no-zlib enable-tlsext no-ssl2 enable-ec_nistp_64_gcc_128 -d' }
-        exec { executable 'make' args 'depend' }
-        exec { executable 'make' }
-    }
-}
-task makeSharedRelWithDebInfo {
-    doLast {
-        exec { executable './config' args 'shared no-idea no-mdc2 no-rc5 no-zlib enable-tlsext no-ssl2 enable-ec_nistp_64_gcc_128' }
-        exec { executable 'make' args 'depend' }
-        exec { executable 'make' }
-    }
-}
-*/
 def mergeIvyDescriptor(ivyModuleNode) {
     // NOTE: This is controlled by the Jenkins job configuration!!!
     // We use the "Copy Artifacts" plugin to make the sequentially
