@@ -58,7 +58,88 @@
 #ifdef OPENSSL_FIPS
 # include <openssl/fips.h>
 # include <openssl/rand.h>
+# ifndef OPENSL_SYS_WIN32
+#  include <stdio.h>
+#  include <string.h>
+#  include <errno.h>
+# endif
 #endif
+
+
+#define SVT_CFG_FILE "/var/svtfs/0/myconf/static/svtfs.xml"
+#define SVT_CFG_LINE_MAX 4096
+#define SVT_CFG_FIPS_KNOB "<FIPSMode>"
+
+static void init_fips_mode_from_svtcfg(void)
+{
+#ifdef OPENSSL_SYS_WIN32
+    /*
+     * For Windows, we always enable FIPS since the Arbiter is the only
+     * user of the FIPS module and we have no cfgdb.
+     */
+    if (!FIPS_mode_set(1))
+    {
+        CRYPTOerr(CRYPTO_F_FIPS_MODE_SET, CRYPTO_R_FIPS_MODE_NOT_SUPPORTED);
+        ERR_add_error_data(1, "Failed to enter FIPS mode.");
+    }
+#else
+    char buf[SVT_CFG_LINE_MAX];
+    FILE *cfg_file;
+    int found_knob = 0;
+	
+    if (getenv("SVT_FORCE_FIPS_MODE") != NULL) 
+    {
+        if (!FIPS_mode_set(1))
+        {
+            CRYPTOerr(CRYPTO_F_FIPS_MODE_SET, CRYPTO_R_FIPS_MODE_NOT_SUPPORTED);
+            ERR_add_error_data(1, "Failed to enter FIPS mode.");
+        }
+    } 
+    else 
+    { 
+        /* 
+         * Open SVT config file and look for desired FIPS state
+         */
+        cfg_file = fopen(SVT_CFG_FILE, "r"); 
+        if (cfg_file > 0) 
+        {
+            while (fgets(buf, SVT_CFG_LINE_MAX, cfg_file)) 
+            {
+                /*
+                 * Check if this line contains the FIPS setting
+                 */
+                if (strstr(buf, SVT_CFG_FIPS_KNOB)) 
+                {
+                    found_knob = 1;
+                    /*
+                     * See if FIPS should be enabled
+                     */
+                    if (strstr(buf, "true")) 
+                    {
+	                if (!FIPS_mode_set(1))
+                        {
+                            CRYPTOerr(CRYPTO_F_FIPS_MODE_SET, CRYPTO_R_FIPS_MODE_NOT_SUPPORTED);
+                            ERR_add_error_data(1, "Failed to enter FIPS mode.");
+                        }
+                        break;
+                    }
+                }
+            }
+            fclose(cfg_file);
+        } 
+        else 
+        {	
+            CRYPTOerr(CRYPTO_F_FIPS_MODE_SET, CRYPTO_R_FIPS_MODE_NOT_SUPPORTED);
+            ERR_add_error_data(2, "OpenSSL unable open SVT configuration: ", strerror(errno));
+        }   
+        if (!found_knob)
+        {
+            CRYPTOerr(CRYPTO_F_FIPS_MODE_SET, CRYPTO_R_FIPS_MODE_NOT_SUPPORTED);
+            ERR_add_error_data(1, "WARNING: FIPSMode setting not in SVT config.");
+        }
+    }
+#endif
+}
 
 /*
  * Perform any essential OpenSSL initialization operations. Currently only
@@ -79,6 +160,7 @@ void OPENSSL_init(void)
     FIPS_set_error_callbacks(ERR_put_error, ERR_add_error_vdata);
     FIPS_set_malloc_callbacks(CRYPTO_malloc, CRYPTO_free);
     RAND_init_fips();
+    init_fips_mode_from_svtcfg();
 #endif
 #if 0
     fprintf(stderr, "Called OPENSSL_init\n");
