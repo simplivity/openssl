@@ -116,7 +116,7 @@ static void init_fips_mode_from_svtcfg(void)
                      */
                     if (strstr(buf, "true")) 
                     {
-	                if (!FIPS_mode_set(1))
+                        if (!FIPS_mode_set(1))
                         {
                             CRYPTOerr(CRYPTO_F_FIPS_MODE_SET, CRYPTO_R_FIPS_MODE_NOT_SUPPORTED);
                             ERR_add_error_data(1, "Failed to enter FIPS mode.");
