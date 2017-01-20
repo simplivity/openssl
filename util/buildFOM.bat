@@ -4,7 +4,7 @@ set mode=%2
 cd fom
 set FOMDIR=%cd%/fips-install
 
-if exist openssl-fips-* goto BUILDFOM
+if exist openssl-fips-*-test goto BUILDFOM
 gzip -d openssl-fips-*.tar.gz
 tar -xvf openssl-fips-*.tar
 
