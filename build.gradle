@@ -17,27 +17,25 @@ buildscript {
         }
     }
 
-    if (OperatingSystem.current().linux) {
-        dependencies {
-            classpath "com.simplivity.gradle.plugins:gradle-svtfunctions-plugin:$svtFunctionsVersion"
-        }
+    dependencies {
+        classpath "com.simplivity.gradle.plugins:gradle-svtfunctions-plugin:$svtFunctionsVersion"
     }
 }
 
 group = "openssl"
 
-if (OperatingSystem.current().linux) {
-    apply plugin: 'com.simplivity.svt-functions'
-    artifactoryPublish.skip = true
+apply plugin: 'com.simplivity.svt-functions'
+artifactoryPublish.skip = true
 
-    artifactory {
-        publish {
-            defaults {
-               publications('OpenSSLNar')
-            }
-       }
+artifactory {
+    publish {
+        defaults {
+            publications('OpenSSLNar')
+        }
     }
+}
 
+if (OperatingSystem.current().linux) {
     ext.buildPlatform = 'linux_x64'
 
     [ 'Shared' ].each { type ->
@@ -76,7 +74,7 @@ if (OperatingSystem.current().linux) {
     }
 } else {
     ext.buildPlatform = 'windows_x64'
-    [ 'Shared' ].each { type ->
+    [ 'Static' ].each { type ->
         [ 'RelWithDebInfo' ].each { mode ->
             tasks.create(name: "makeWindows${type}${mode}", group: 'Build') {
                 description = "Generates the Windows ${type} ${mode} configuration"
@@ -92,7 +90,7 @@ if (OperatingSystem.current().linux) {
                 dependsOn "makeWindows${type}${mode}"
 
                 baseName = 'openssl'
-                classifier = "win_x64-${type.toLowerCase()}-${clMode.toLowerCase()}"
+                classifier = "windows_x64-${type.toLowerCase()}-${clMode.toLowerCase()}"
                 extension = 'nar'
                 destinationDir = file("$buildDir/distributions")
 
@@ -102,8 +100,14 @@ if (OperatingSystem.current().linux) {
                 from("$buildDir/${type}/${mode}/lib") {
                     into 'lib'
                 }
-                from("$buildDir/${type}/${mode}/bin") {
+                from("$buildDir/${type}/${mode}/bin/openssl.exe") {
                     into 'bin'
+                }
+                from("$buildDir/${type}/${mode}/bin/libeay32.dll") {
+                    into 'lib'
+                }
+                from("$buildDir/${type}/${mode}/bin/ssleay32.dll") {
+                    into 'lib'
                 }
                 from("c:/usr/local/ssl/fips-2.0") {
                     into 'fips-2.0'
@@ -115,8 +119,10 @@ if (OperatingSystem.current().linux) {
 
 if (OperatingSystem.current().linux) {
     assemble.dependsOn assembleSharedDebugNar
+    assemble.dependsOn assembleSharedRelWithDebInfoNar
+} else {
+    assemble.dependsOn assembleStaticRelWithDebInfoNar
 }
-assemble.dependsOn assembleSharedRelWithDebInfoNar
 
 def ivyUrl = "${System.properties['user.home']}/.ivy/repository"
 if (project.hasProperty('ivyLocalUrl')) {
@@ -128,18 +134,26 @@ publishing {
     publications {
         OpenSSLNar(IvyPublication) {
             module 'openssl'
-            configurations {
-                "${buildPlatform}-shared-debug" {}
-                "${buildPlatform}-shared-release" {}
-                "default" {}
-            }
             if (OperatingSystem.current().linux) {
+                configurations {
+                    "${buildPlatform}-shared-debug" {}
+                    "${buildPlatform}-shared-release" {}
+                    "default" {}
+                }
                 artifact(assembleSharedDebugNar) {
                     conf "${buildPlatform}-shared-debug"
                 }
-            }
-            artifact(assembleSharedRelWithDebInfoNar) {
-                conf "${buildPlatform}-shared-release"
+                artifact(assembleSharedRelWithDebInfoNar) {
+                    conf "${buildPlatform}-shared-release"
+                }
+            } else {
+                configurations {
+                    "${buildPlatform}-static-release" {}
+                    "default" {}
+                }
+                artifact(assembleStaticRelWithDebInfoNar) {
+                    conf "${buildPlatform}-static-release"
+                }
             }
             descriptor.withXml {
                 asNode().info[0].appendNode('description', 'openssl library')
