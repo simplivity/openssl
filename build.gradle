@@ -109,8 +109,9 @@ if (OperatingSystem.current().linux) {
                 from("$buildDir/${type}/${mode}/bin/ssleay32.dll") {
                     into 'lib'
                 }
-                from("c:/usr/local/ssl/fips-2.0") {
-                    into 'fips-2.0'
+                from("$buildDir/../fom/fips-install") {
+                    into 'fips-canister'
+		    exclude 'include'
                 }
             }        
         }
