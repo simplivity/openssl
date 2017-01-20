@@ -16,9 +16,10 @@ nmake -f ms\ntdll.mak
 nmake -f ms\ntdll.mak install
 cd ../..
 
+if "%type%" == "Static" set STATICOPT=no-shared
 
 :BUILDLIB
-perl Configure VC-WIN64A fips no-asm --prefix=build\%type%\%mode% 
+perl Configure VC-WIN64A fips %STATICOPT% no-asm --prefix=build\%type%\%mode% 
 call ms\do_win64a.bat
 nmake -f ms\ntdll.mak clean
 nmake -f ms\ntdll.mak
