@@ -75,7 +75,7 @@ if (OperatingSystem.current().linux) {
 } else {
     ext.buildPlatform = 'windows_x64'
     [ 'Static' ].each { type ->
-        [ 'RelWithDebInfo' ].each { mode ->
+        [ 'Debug', 'RelWithDebInfo' ].each { mode ->
             tasks.create(name: "makeWindows${type}${mode}", group: 'Build') {
                 description = "Generates the Windows ${type} ${mode} configuration"
                 doLast {
@@ -121,6 +121,7 @@ if (OperatingSystem.current().linux) {
     assemble.dependsOn assembleSharedDebugNar
     assemble.dependsOn assembleSharedRelWithDebInfoNar
 } else {
+    assemble.dependsOn assembleStaticDebugNar
     assemble.dependsOn assembleStaticRelWithDebInfoNar
 }
 
@@ -148,8 +149,12 @@ publishing {
                 }
             } else {
                 configurations {
+                    "${buildPlatform}-static-debug" {}
                     "${buildPlatform}-static-release" {}
                     "default" {}
+                }
+                artifact(assembleStaticDebugNar) {
+                    conf "${buildPlatform}-static-debug"
                 }
                 artifact(assembleStaticRelWithDebInfoNar) {
                     conf "${buildPlatform}-static-release"
