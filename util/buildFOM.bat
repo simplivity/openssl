@@ -2,7 +2,7 @@ set type=%1
 set mode=%2
 
 cd fom
-set FOMDIR=%cd%/fips-install
+set FOMDIR=%cd%\fips-install
 
 echo %NASM_DIR%
 set PATH=e:\Git\bin;%NASM_DIR%;%PATH%
