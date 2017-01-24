@@ -4,7 +4,11 @@ set mode=%2
 cd fom
 set FOMDIR=%cd%/fips-install
 
-set PATH=e:\Git\bin;%PATH%
+echo %NASM_DIR%
+set PATH=e:\Git\bin;%NASM_DIR%;%PATH%
+
+call nasm -v
+call perl -v
 
 if exist openssl-fips-*-test goto BUILDFOM
 gzip -d openssl-fips-*.tar.gz
