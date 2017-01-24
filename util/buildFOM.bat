@@ -21,7 +21,7 @@ call ms\do_win64a.bat
 nmake -f ms\ntdll.mak clean
 nmake -f ms\ntdll.mak
 nmake -f ms\ntdll.mak install
-cd ../..
+cd ..\..
 
 if "%type%" == "Static" set STATICOPT=no-shared
 if "%mode%" == "Debug" set DEBUGOPT=debug-
