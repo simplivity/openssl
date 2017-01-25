@@ -92,7 +92,7 @@ static void init_fips_mode_from_svtcfg(void)
     {
         if (!FIPS_mode_set(1))
         {
-            CRYPTOerr(CRYPTO_F_FIPS_MODE_SET, CRYPTO_R_FIPS_MODE_NOT_SUPPORTED);
+            CRYPTOerr(CRYPTO_F_INIT_FIPS_MODE_FROM_SVTCFG, CRYPTO_R_FIPS_MODE_NOT_SUPPORTED);
             ERR_add_error_data(1, "Failed to enter FIPS mode.");
         }
     } 
@@ -119,7 +119,7 @@ static void init_fips_mode_from_svtcfg(void)
                     {
                         if (!FIPS_mode_set(1))
                         {
-                            CRYPTOerr(CRYPTO_F_FIPS_MODE_SET, CRYPTO_R_FIPS_MODE_NOT_SUPPORTED);
+                            CRYPTOerr(CRYPTO_F_INIT_FIPS_MODE_FROM_SVTCFG, CRYPTO_R_FIPS_MODE_NOT_SUPPORTED);
                             ERR_add_error_data(1, "Failed to enter FIPS mode.");
                         }
                         break;
@@ -131,12 +131,12 @@ static void init_fips_mode_from_svtcfg(void)
         else 
         {	
             fprintf(stderr,"Unable to determin desired FIPS mode: unable to open %s\n", cfg_file_nm);
-            CRYPTOerr(CRYPTO_F_FIPS_MODE_SET, CRYPTO_R_FIPS_MODE_NOT_SUPPORTED);
+            CRYPTOerr(CRYPTO_F_INIT_FIPS_MODE_FROM_SVTCFG, CRYPTO_R_FIPS_MODE_NOT_SUPPORTED);
             ERR_add_error_data(2, "OpenSSL unable open SVT configuration: ", strerror(errno));
         }   
         if (!found_knob)
         {
-            CRYPTOerr(CRYPTO_F_FIPS_MODE_SET, CRYPTO_R_FIPS_MODE_NOT_SUPPORTED);
+            CRYPTOerr(CRYPTO_F_INIT_FIPS_MODE_FROM_SVTCFG, CRYPTO_R_FIPS_MODE_NOT_SUPPORTED);
             ERR_add_error_data(1, "WARNING: FIPSMode setting not in SVT config.");
         }
     }

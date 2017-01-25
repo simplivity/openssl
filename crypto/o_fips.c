@@ -94,3 +94,32 @@ int FIPS_mode_set(int r)
     return 0;
 #endif
 }
+
+int kdf_ssh(const EVP_MD *evp_md, int id, unsigned int need, char *shared_secret,
+            int ss_len, char *session_id, int session_id_len, char *hash, 
+	    int hash_len, unsigned char *digest)
+{
+#ifdef OPENSSL_FIPS
+    const EVP_MD *fips_md;
+    if (FIPS_mode()) {
+        fips_md = FIPS_get_digestbynid(evp_md->type);
+	if (!fips_md) {
+            CRYPTOerr(CRYPTO_F_KDF_SSH, CRYPTO_R_NON_FIPS_DIGEST);
+	    return -1;
+	}
+	return FIPS_kdf_ssh(
+	    fips_md, 
+	    id, 
+	    need, 
+	    shared_secret, 
+	    ss_len, 
+	    session_id, 
+	    session_id_len,  
+	    hash, 
+	    hash_len, 
+	    digest);
+    } else 
+#endif
+    return -1;
+}
+
