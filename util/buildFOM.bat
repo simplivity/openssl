@@ -5,7 +5,7 @@ cd fom
 set FOMDIR=%cd%\fips-install
 
 echo %NASM_DIR%
-set PATH=e:\Git\bin;%NASM_DIR%;%PATH%
+set PATH=c:\temp\perl\bin;e:\Git\bin;%NASM_DIR%;%PATH%
 
 call nasm -v
 call perl -v
