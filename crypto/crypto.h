@@ -596,6 +596,9 @@ int OPENSSL_isservice(void);
 
 int FIPS_mode(void);
 int FIPS_mode_set(int r);
+int kdf_ssh(const EVP_MD *evp_md, int id, unsigned int need, char *shared_secret,
+            int ss_len, char *session_id, int session_id_len, char *hash, 
+	    int hash_len, unsigned char *digest);
 
 void OPENSSL_init(void);
 

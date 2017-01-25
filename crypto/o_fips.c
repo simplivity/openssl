@@ -94,3 +94,26 @@ int FIPS_mode_set(int r)
     return 0;
 #endif
 }
+
+int kdf_ssh(const EVP_MD *evp_md, int id, unsigned int need, char *shared_secret,
+            int ss_len, char *session_id, int session_id_len, char *hash, 
+	    int hash_len, unsigned char *digest)
+{
+#ifdef OPENSSL_FIPS
+    if (FIPS_mode()) {
+	return FIPS_kdf_ssh(
+	    evp_md, 
+	    id, 
+	    need, 
+	    shared_secret, 
+	    ss_len, 
+	    session_id, 
+	    session_id_len,  
+	    hash, 
+	    hash_len, 
+	    digest);
+    } else 
+#endif
+    return -1;
+}
+
