@@ -44,8 +44,6 @@ if (OperatingSystem.current().linux) {
                 description = "Generates the Linux ${type} ${mode} configuration"
                 doLast {
                     exec { executable 'util/buildFOM.sh' args "${type}", "${mode}"}
-                    exec { executable 'make' args 'test' }
-                    exec { executable 'make' args 'install_sw' }
                 }
             }
 
@@ -60,13 +58,13 @@ if (OperatingSystem.current().linux) {
                 extension = 'nar'
                 destinationDir = file("$buildDir/distributions")
 
-                from("$buildDir/${type}/${mode}/include") {
+                from("$buildDir/${type}/${mode}/usr/include") {
                     into 'include'
                 }
-                from("$buildDir/${type}/${mode}/lib") {
+                from("$buildDir/${type}/${mode}/usr/lib/x86_64-linux-gnu") {
                     into 'lib'
                 }
-                from("$buildDir/${type}/${mode}/bin") {
+                from("$buildDir/${type}/${mode}/usr/bin") {
                     into 'bin'
                 }
             }
