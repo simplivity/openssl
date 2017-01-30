@@ -3,6 +3,7 @@ set mode=%2
 
 cd fom
 set FOMDIR=%cd%\fips-install
+set PATH=%PERL_DIR%;%PATH%
 
 call "C:\Program Files (x86)\Microsoft Visual Studio 10.0\VC\vcvarsall.bat" amd64
 call nasm -v
