@@ -73,18 +73,13 @@ static int dsa_builtin_keygen(DSA *dsa);
 int DSA_generate_key(DSA *dsa)
 {
 # ifdef OPENSSL_FIPS
-    if (FIPS_mode() && !(dsa->meth->flags & DSA_FLAG_FIPS_METHOD)
-        && !(dsa->flags & DSA_FLAG_NON_FIPS_ALLOW)) {
+    if (FIPS_mode()) {
         DSAerr(DSA_F_DSA_GENERATE_KEY, DSA_R_NON_FIPS_DSA_METHOD);
         return 0;
     }
 # endif
     if (dsa->meth->dsa_keygen)
         return dsa->meth->dsa_keygen(dsa);
-# ifdef OPENSSL_FIPS
-    if (FIPS_mode())
-        return FIPS_dsa_generate_key(dsa);
-# endif
     return dsa_builtin_keygen(dsa);
 }
 
