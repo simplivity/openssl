@@ -136,6 +136,8 @@ DSA *DSA_new_method(ENGINE *engine)
         return (NULL);
     }
     ret->meth = DSA_get_default_method();
+    if (!ret->meth) return (NULL);
+
 #ifndef OPENSSL_NO_ENGINE
     if (engine) {
         if (!ENGINE_init(engine)) {
