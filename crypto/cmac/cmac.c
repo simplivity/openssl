@@ -107,7 +107,7 @@ void CMAC_CTX_cleanup(CMAC_CTX *ctx)
 {
 #ifdef OPENSSL_FIPS
     if (FIPS_mode() && !ctx->cctx.engine) {
-        FIPS_cmac_ctx_cleanup(ctx);
+        EVPerr(EVP_F_CMAC_CTX_CLEANUP, EVP_R_DISABLED_FOR_FIPS);
         return;
     }
 #endif
@@ -154,26 +154,8 @@ int CMAC_Init(CMAC_CTX *ctx, const void *key, size_t keylen,
     static unsigned char zero_iv[EVP_MAX_BLOCK_LENGTH];
 #ifdef OPENSSL_FIPS
     if (FIPS_mode()) {
-        /* If we have an ENGINE need to allow non FIPS */
-        if ((impl || ctx->cctx.engine)
-            && !(ctx->cctx.flags & EVP_CIPH_FLAG_NON_FIPS_ALLOW)) {
-            EVPerr(EVP_F_CMAC_INIT, EVP_R_DISABLED_FOR_FIPS);
-            return 0;
-        }
-
-        /* Switch to FIPS cipher implementation if possible */
-        if (cipher != NULL) {
-            const EVP_CIPHER *fcipher;
-            fcipher = FIPS_get_cipherbynid(EVP_CIPHER_nid(cipher));
-            if (fcipher != NULL)
-                cipher = fcipher;
-        }
-        /*
-         * Other algorithm blocking will be done in FIPS_cmac_init, via
-         * FIPS_cipherinit().
-         */
-        if (!impl && !ctx->cctx.engine)
-            return FIPS_cmac_init(ctx, key, keylen, cipher, NULL);
+        EVPerr(EVP_F_CMAC_INIT, EVP_R_DISABLED_FOR_FIPS);
+        return 0;
     }
 #endif
     /* All zeros means restart */
@@ -220,8 +202,10 @@ int CMAC_Update(CMAC_CTX *ctx, const void *in, size_t dlen)
     const unsigned char *data = in;
     size_t bl;
 #ifdef OPENSSL_FIPS
-    if (FIPS_mode() && !ctx->cctx.engine)
-        return FIPS_cmac_update(ctx, in, dlen);
+    if (FIPS_mode() && !ctx->cctx.engine) {
+        EVPerr(EVP_F_CMAC_UPDATE, EVP_R_DISABLED_FOR_FIPS);
+        return 0;
+    }
 #endif
     if (ctx->nlast_block == -1)
         return 0;
@@ -263,8 +247,10 @@ int CMAC_Final(CMAC_CTX *ctx, unsigned char *out, size_t *poutlen)
 {
     int i, bl, lb;
 #ifdef OPENSSL_FIPS
-    if (FIPS_mode() && !ctx->cctx.engine)
-        return FIPS_cmac_final(ctx, out, poutlen);
+    if (FIPS_mode() && !ctx->cctx.engine) {
+        EVPerr(EVP_F_CMAC_FINAL, EVP_R_DISABLED_FOR_FIPS);
+        return 0;
+    }
 #endif
     if (ctx->nlast_block == -1)
         return 0;

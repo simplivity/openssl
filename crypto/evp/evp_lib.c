@@ -321,11 +321,7 @@ int EVP_MD_size(const EVP_MD *md)
 const EVP_MD *evp_get_fips_md(const EVP_MD *md)
 {
     int nid = EVP_MD_type(md);
-    if (nid == NID_dsa)
-        return FIPS_evp_dss1();
-    else if (nid == NID_dsaWithSHA)
-        return FIPS_evp_dss();
-    else if (nid == NID_ecdsa_with_SHA1)
+    if (nid == NID_ecdsa_with_SHA1)
         return FIPS_evp_ecdsa();
     else
         return FIPS_get_digestbynid(nid);

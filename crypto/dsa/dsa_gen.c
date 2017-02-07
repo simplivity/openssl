@@ -86,8 +86,6 @@
 # include "dsa_locl.h"
 
 # ifdef OPENSSL_FIPS
-/* Workaround bug in prototype */
-#  define fips_dsa_builtin_paramgen2 fips_dsa_paramgen_bad
 #  include <openssl/fips.h>
 # endif
 
@@ -97,8 +95,7 @@ int DSA_generate_parameters_ex(DSA *ret, int bits,
                                BN_GENCB *cb)
 {
 # ifdef OPENSSL_FIPS
-    if (FIPS_mode() && !(ret->meth->flags & DSA_FLAG_FIPS_METHOD)
-        && !(ret->flags & DSA_FLAG_NON_FIPS_ALLOW)) {
+    if (FIPS_mode()) {
         DSAerr(DSA_F_DSA_GENERATE_PARAMETERS_EX, DSA_R_NON_FIPS_DSA_METHOD);
         return 0;
     }
@@ -106,13 +103,6 @@ int DSA_generate_parameters_ex(DSA *ret, int bits,
     if (ret->meth->dsa_paramgen)
         return ret->meth->dsa_paramgen(ret, bits, seed_in, seed_len,
                                        counter_ret, h_ret, cb);
-# ifdef OPENSSL_FIPS
-    else if (FIPS_mode()) {
-        return FIPS_dsa_generate_parameters_ex(ret, bits,
-                                               seed_in, seed_len,
-                                               counter_ret, h_ret, cb);
-    }
-# endif
     else {
         const EVP_MD *evpmd = bits >= 2048 ? EVP_sha256() : EVP_sha1();
         size_t qbits = EVP_MD_size(evpmd) * 8;
@@ -382,17 +372,6 @@ int dsa_builtin_paramgen(DSA *ret, size_t bits, size_t qbits,
     return ok;
 }
 
-# ifdef OPENSSL_FIPS
-#  undef fips_dsa_builtin_paramgen2
-extern int fips_dsa_builtin_paramgen2(DSA *ret, size_t L, size_t N,
-                                      const EVP_MD *evpmd,
-                                      const unsigned char *seed_in,
-                                      size_t seed_len, int idx,
-                                      unsigned char *seed_out,
-                                      int *counter_ret, unsigned long *h_ret,
-                                      BN_GENCB *cb);
-# endif
-
 /*
  * This is a parameter generation algorithm for the DSA2 algorithm as
  * described in FIPS 186-3.
@@ -419,11 +398,10 @@ int dsa_builtin_paramgen2(DSA *ret, size_t L, size_t N,
     unsigned int h = 2;
 
 # ifdef OPENSSL_FIPS
-
-    if (FIPS_mode())
-        return fips_dsa_builtin_paramgen2(ret, L, N, evpmd,
-                                          seed_in, seed_len, idx,
-                                          seed_out, counter_ret, h_ret, cb);
+    if (FIPS_mode()) {
+        DSAerr(DSA_F_DSA_BUILTIN_PARAMGEN2, DSA_R_NON_FIPS_DSA_METHOD);
+	return ok;
+    }
 # endif
 
     EVP_MD_CTX_init(&mctx);
