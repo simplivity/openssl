@@ -45,7 +45,7 @@ if ($FLAVOR =~ /WIN64/)
     # considered safe to ignore.
     # 
     $base_cflags= " $mf_cflag";
-    my $f = $shlib || $fips ?' /MD':' /MT';
+    my $f = $shlib ?' /MD':' /MT';
     $opt_cflags=$f.' /Ox';
     $dbg_cflags=$f.'d /Od -DDEBUG -D_DEBUG';
     $lflags="/nologo /subsystem:console /opt:ref";
@@ -130,13 +130,12 @@ elsif ($FLAVOR =~ /CE/)
 else	# Win32
     {
     $base_cflags= " $mf_cflag";
-    my $f = $shlib || $fips ?' /MD':' /MT';
+    my $f = $shlib ?' /MD':' /MT';
     $ff = "/fixed";
     $opt_cflags=$f.' /Ox /O2 /Ob2';
     $dbg_cflags=$f.'d /Od -DDEBUG -D_DEBUG';
     $lflags="/nologo /subsystem:console /opt:ref";
     }
-$lib_cflag='/Zl' if (!$shlib);	# remove /DEFAULTLIBs from static lib
 $mlflags='';
 
 $out_def ="out32";	$out_def.="dll"			if ($shlib);
