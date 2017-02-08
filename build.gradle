@@ -3,10 +3,8 @@ description = 'Gradle wrapper for OpenSSL build'
 apply plugin: 'base'
 apply plugin: 'ivy-publish'
 
-import org.gradle.internal.os.OperatingSystem
-
 buildscript {
-    ext.svtFunctionsVersion = '5.0.2'
+    ext.svtFunctionsVersion = '6.0.+'
 
     repositories {
         mavenLocal()
@@ -25,210 +23,231 @@ buildscript {
 group = "openssl"
 
 apply plugin: 'com.simplivity.svt-functions'
-artifactoryPublish.skip = true
 
-artifactory {
-    publish {
-        defaults {
-            publications('OpenSSLNar')
-        }
-    }
-}
-
-if (OperatingSystem.current().linux) {
+if (currentOs.linux) {
     ext.buildPlatform = 'linux_x64'
 
-    [ 'Shared' ].each { type ->
-        [ 'Debug', 'RelWithDebInfo' ].each { mode ->
-            tasks.create(name: "makeLinux${type}${mode}", group: 'Build') {
-                description = "Generates the Linux ${type} ${mode} configuration"
-                doLast {
-                    exec { executable 'util/buildFOM.sh' args "${type}", "${mode}"}
-                }
-            }
+    // Linux builds generate both static and shared libraries in one execution
+    [ 'Debug', 'Release' ].each { mode ->
+        tasks.create(name: "makeLinux${mode}", type: Exec, group: 'Build') {
+            description = "Generates the Linux ${mode} configuration"
+            outputs.dir file("$buildDir/${mode}")
 
-            tasks.create("assemble${type}${mode}Nar", Zip).configure {
-                def clMode = mode == 'RelWithDebInfo' ? 'release' : mode
-                group = 'Build'
+            environment BUILD_DIR: buildDir
+            executable 'util/buildFOM.sh' 
+            args mode
+        }
+
+        [ 'Shared', 'Static' ].each { type ->
+            tasks.create(name: "assemble${type}${mode}Nar", type: Zip, group: 'Build') {
                 description = "Assembles a zip archive containing the OpenSSL Linux ${type} ${mode} library."
-                dependsOn "makeLinux${type}${mode}"
+                dependsOn "makeLinux${mode}"
+                project.assemble.dependsOn it
 
                 baseName = 'openssl'
-                classifier = "linux_x64-${type.toLowerCase()}-${clMode.toLowerCase()}"
+                classifier = "linux_x64-${type.toLowerCase()}-${mode.toLowerCase()}"
                 extension = 'nar'
                 destinationDir = file("$buildDir/distributions")
 
-                from("$buildDir/${type}/${mode}/usr/include") {
-                    into 'include'
+                into('include') {
+                    from "$buildDir/${mode}/openssl-install/usr/include"
+                    from "$buildDir/${mode}/fips-install/include"
                 }
-                from("$buildDir/${type}/${mode}/usr/lib/x86_64-linux-gnu") {
-                    into 'lib'
+                into('bin') {
+                    from "$buildDir/${mode}/openssl-install/usr/bin"
                 }
-                from("$buildDir/${type}/${mode}/usr/bin") {
-                    into 'bin'
+                into('lib') {
+                    from("$buildDir/${mode}/openssl-install/usr/lib/x86_64-linux-gnu") {
+                        if (type == 'Static') {
+                            include 'lib*.a'
+                        } else {
+                            include 'lib*.so', 'lib*.so.*'
+                        }
+                    }
+                    if (type == 'Static') {
+                        from("$buildDir/${mode}/fips-install/lib") {
+                            include 'fipscanister.*'
+                        }
+                    }
+                }
+            }
+        }
+
+        // OpenSSL Engines are created separately in the lib/engines directory and
+        // only for the shared library mode. Package them separately.
+        tasks.create(name: "assemble${mode}Engines", type: Zip, group: 'Build') {
+            description = "Assembles a zip archive of the FIPS crypto engines for ${mode} builds."
+            dependsOn "makeLinux${mode}"
+            project.assemble.dependsOn it
+
+            baseName = "openssl"
+            classifier = "${buildPlatform}-engines-${mode.toLowerCase()}"
+            extension = 'zip'
+            destinationDir = file("$buildDir/distributions")
+
+            into('lib') {
+                from("$buildDir/${mode}/openssl-install/usr/lib/x86_64-linux-gnu") {
+                    include 'engines/*.so'
+                }
+            }
+        }
+
+        // We only need the Static flavor of these tools to properly process the FIPS builds.
+        tasks.create(name: "assemble${mode}FipsTools", type: Zip, group: 'Build') {
+            description = "Assembles a zip archive of the FIPS tools and sources for ${mode} builds."
+            dependsOn "makeLinux${mode}"
+            project.assemble.dependsOn it
+
+            baseName = "openssl"
+            classifier = "${buildPlatform}-fips-tools-${mode.toLowerCase()}"
+            extension = 'zip'
+            destinationDir = file("$buildDir/distributions")
+
+            into('bin') {
+                from "$buildDir/${mode}/fips-install/bin"
+            }
+            into('src') {
+                from("$buildDir/${mode}/fips-install/lib") {
+                    include 'fips_premain.*'
                 }
             }
         }
     }
 } else {
     ext.buildPlatform = 'windows_x64'
-    [ 'Static' ].each { type ->
-        [ 'Debug', 'RelWithDebInfo' ].each { mode ->
-            tasks.create(name: "makeWindows${type}${mode}", group: 'Build') {
+    [ 'Debug', 'Release' ].each { mode ->
+        [ 'Shared', 'Static' ].each { type ->
+            tasks.create(name: "makeWindows${type}${mode}", type: Exec, group: 'Build') {
                 description = "Generates the Windows ${type} ${mode} configuration"
-                doLast {
-                    exec { executable 'util/buildFOM.bat' args "${type}", "${mode}"}
-                }
+                outputs.dir file("$buildDir/${type}/${mode}")
+
+                workingDir projectDir
+                environment BUILD_DIR: buildDir
+                executable 'util/buildFOM.bat' 
+                args type, mode
             }
 
-            tasks.create("assemble${type}${mode}Nar", Zip).configure {
-                def clMode = mode == 'RelWithDebInfo' ? 'release' : mode
-                group = 'Build'
+            tasks.create(name: "assemble${type}${mode}Nar", type: Zip, group: "Build") {
                 description = "Assembles a zip archive containing the OpenSSL Windows ${type} ${mode} library."
                 dependsOn "makeWindows${type}${mode}"
+                project.assemble.dependsOn it
 
                 baseName = 'openssl'
-                classifier = "windows_x64-${type.toLowerCase()}-${clMode.toLowerCase()}"
+                classifier = "${buildPlatform}-${type.toLowerCase()}-${mode.toLowerCase()}"
                 extension = 'nar'
                 destinationDir = file("$buildDir/distributions")
 
-                from("$buildDir/${type}/${mode}/include") {
-                    into 'include'
+                into('include') {
+                    from "$buildDir/${type}/${mode}/openssl-install/include"
+                    from "$buildDir/${type}/${mode}/fips-install/include"
                 }
-                from("$buildDir/${type}/${mode}/lib") {
-                    into 'lib'
+                into('bin') {
+                    from "$buildDir/${type}/${mode}/openssl-install/bin"
+                    include '*.exe'
                 }
-                from("$buildDir/${type}/${mode}/bin/openssl.exe") {
-                    into 'bin'
+                into('lib') {
+                    from("$buildDir/${type}/${mode}/openssl-install/lib") {
+                        include '*.lib'
+                    }
+                    if (type == 'Static') {
+                        from("$buildDir/${type}/${mode}/fips-install/lib") {
+                            include 'fipscanister.lib*'
+                        }
+                    } else {
+                        from("$buildDir/${type}/${mode}/openssl-install/bin") {
+                            include '*.dll'
+                        }
+                    }
                 }
-                from("$buildDir/${type}/${mode}/bin/libeay32.dll") {
-                    into 'lib'
+            }
+        }
+
+        // OpenSSL Engines are created separately in the lib/engines directory and
+        // only for the shared library mode. Package them separately.
+        tasks.create(name: "assemble${mode}Engines", type: Zip, group: 'Build') {
+            description = "Assembles a zip archive of the FIPS crypto engines for ${mode} builds."
+            dependsOn "makeWindowsShared${mode}"
+            project.assemble.dependsOn it
+
+            baseName = "openssl"
+            classifier = "${buildPlatform}-engines-${mode.toLowerCase()}"
+            extension = 'zip'
+            destinationDir = file("$buildDir/distributions")
+
+            into('lib') {
+                from("$buildDir/Shared/${mode}/openssl-install/lib") {
+                    include 'engines/*.dll'
                 }
-                from("$buildDir/${type}/${mode}/bin/ssleay32.dll") {
-                    into 'lib'
+            }
+        }
+
+        // We only need the Static flavor of these tools to properly process the FIPS builds.
+        tasks.create(name: "assemble${mode}FipsTools", type: Zip, group: 'Build') {
+            description = "Assembles a zip archive of the FIPS tools and sources for ${mode} builds."
+            dependsOn "makeWindowsStatic${mode}"
+            project.assemble.dependsOn it
+
+            baseName = "openssl"
+            classifier = "${buildPlatform}-fips-tools-${mode.toLowerCase()}"
+            extension = 'zip'
+            destinationDir = file("$buildDir/distributions")
+
+            into('bin') {
+                from("$buildDir/Static/${mode}/fips-install/bin") {
+                    include '*.exe', '*.pl', 'msincore'
                 }
-                from("$buildDir/../fom/fips-install") {
-                    into 'fips-canister'
-		    exclude 'include'
+            }
+            into('src') {
+                from("$buildDir/Static/${mode}/fips-install/lib") {
+                    include 'fips_premain.*'
                 }
-            }        
+            }
         }
     }
 }
-
-if (OperatingSystem.current().linux) {
-    assemble.dependsOn assembleSharedDebugNar
-    assemble.dependsOn assembleSharedRelWithDebInfoNar
-} else {
-    assemble.dependsOn assembleStaticDebugNar
-    assemble.dependsOn assembleStaticRelWithDebInfoNar
-}
-
-def ivyUrl = "${System.properties['user.home']}/.ivy/repository"
-if (project.hasProperty('ivyLocalUrl')) {
-    ivyUrl = project.ivyLocalUrl
-}
-
 
 publishing {
     publications {
         OpenSSLNar(IvyPublication) {
             module 'openssl'
-            if (OperatingSystem.current().linux) {
-                configurations {
-                    "${buildPlatform}-shared-debug" {}
-                    "${buildPlatform}-shared-release" {}
-                    "default" {}
-                }
-                artifact(assembleSharedDebugNar) {
-                    conf "${buildPlatform}-shared-debug"
-                }
-                artifact(assembleSharedRelWithDebInfoNar) {
-                    conf "${buildPlatform}-shared-release"
-                }
-            } else {
-                configurations {
-                    "${buildPlatform}-static-debug" {}
-                    "${buildPlatform}-static-release" {}
-                    "default" {}
-                }
-                artifact(assembleStaticDebugNar) {
-                    conf "${buildPlatform}-static-debug"
-                }
-                artifact(assembleStaticRelWithDebInfoNar) {
-                    conf "${buildPlatform}-static-release"
-                }
+            configurations {
+                "${buildPlatform}-static-debug" {}
+                "${buildPlatform}-static-release" {}
+                "${buildPlatform}-shared-debug" {}
+                "${buildPlatform}-shared-release" {}
+                "${buildPlatform}-fips-tools-debug" {}
+                "${buildPlatform}-fips-tools-release" {}
+                "${buildPlatform}-engines-debug" {}
+                "${buildPlatform}-engines-release" {}
+                "default" {}
+            }
+            artifact(assembleStaticDebugNar) {
+                conf "${buildPlatform}-static-debug"
+            }
+            artifact(assembleStaticReleaseNar) {
+                conf "${buildPlatform}-static-release"
+            }
+            artifact(assembleSharedDebugNar) {
+                conf "${buildPlatform}-shared-debug"
+            }
+            artifact(assembleSharedReleaseNar) {
+                conf "${buildPlatform}-shared-release"
+            }
+            artifact(assembleDebugFipsTools) {
+                conf "${buildPlatform}-fips-tools-debug"
+            }
+            artifact(assembleReleaseFipsTools) {
+                conf "${buildPlatform}-fips-tools-release"
+            }
+            artifact(assembleDebugEngines) {
+                conf "${buildPlatform}-engines-debug"
+            }
+            artifact(assembleReleaseEngines) {
+                conf "${buildPlatform}-engines-release"
             }
             descriptor.withXml {
                 asNode().info[0].appendNode('description', 'openssl library')
-                mergeIvyDescriptor(asNode())
             }
         }
     }
-    repositories {
-        ivy {
-            name "IvyLocal"
-            url ivyUrl
-            layout 'gradle'
-        }
-    }
-}
-
-def mergeIvyDescriptor(ivyModuleNode) {
-    // NOTE: This is controlled by the Jenkins job configuration!!!
-    // We use the "Copy Artifacts" plugin to make the sequentially
-    // building Linux build resulting ivy.xml available to the Windows
-    // builds to merge and consolidate the two descriptors.
-    def linuxIvy = rootProject.file('ivyDescriptor/ivy.xml')
-    if (linuxIvy.exists()) {
-        def ivyModule = new XmlSlurper().parse(linuxIvy)
-
-        mergeConfigurations(ivyModuleNode.configurations[0], ivyModule.configurations[0].childNodes())
-        mergePublications(ivyModuleNode.publications[0], ivyModule.publications[0].childNodes())
-    }
-}
-
-def mergeConfigurations(myConf, toBeMergedConf) {
-    toBeMergedConf.each {
-        if (it.attributes()['name'] == 'default') {
-            def myDef = myConf.children().find { it.@name == 'default' }
-            if (myDef) {
-                def mergingValue = it.attributes()['extends']
-                if (mergingValue) {
-                    if (myDef.@extends) {
-                        myDef.@extends = myDef.@extends + ',' + mergingValue
-                    } else {
-                        myDef.@extends = mergingValue
-                    }
-                }
-            } else {
-                myConf.appendNode(it.name(), it.attributes())
-            }
-        } else {
-            myConf.appendNode(it.name(), it.attributes())
-        }
-    }
-}
-
-
-def mergePublications(myPubs, linuxPubs) {
-    linuxPubs.each {
-        myPubs.appendNode(it.name(), fixupAttributes(it.attributes()))
-    }
-}
-
-// XML HACK! This does not seem like the best way but the result
-// proves it works. The Ivy descriptor is formatted as it should be.
-// For some reason the attributes map returned by the XMLSlurper nodes
-// has the names stringified which is unfortunate. The nodes we handle
-// can use a QName instead of a string in the map keys just the same.
-def fixupAttributes(attributes) {
-    def attr = [:]
-    attributes.each { k,v ->
-        if (k == '{http://ant.apache.org/ivy/maven}classifier') {
-            k = new groovy.xml.QName('http://ant.apache.org/ivy/maven', 'classifier', 'm')
-        }
-        attr.put(k, v)
-    }
-    return attr
 }
