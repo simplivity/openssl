@@ -142,7 +142,7 @@ static int bind_helper(ENGINE *e)
 # ifndef OPENSSL_NO_RSA
         || !ENGINE_set_RSA(e, RSA_get_default_method())
 # endif
-# ifndef OPENSSL_NO_DSA
+# if !defined(OPENSSL_NO_DSA) && !defined(OPENSSL_FIPS)
         || !ENGINE_set_DSA(e, DSA_get_default_method())
 # endif
 # ifndef OPENSSL_NO_ECDH

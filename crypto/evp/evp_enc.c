@@ -70,7 +70,23 @@
 #include "evp_locl.h"
 
 #ifdef OPENSSL_FIPS
-# define M_do_cipher(ctx, out, in, inl) FIPS_cipher(ctx, out, in, inl)
+static int EVP_dispatch_fips_cipher (
+        EVP_CIPHER_CTX *ctx, 
+        unsigned char *out, 
+        const unsigned char *in, 
+        unsigned int inl)
+{
+    if (FIPS_mode())
+    {
+        return FIPS_cipher(ctx, out, in, inl);
+    }
+    else
+    {
+        return ctx->cipher->do_cipher(ctx, out, in, inl);
+    }
+}
+
+# define M_do_cipher(ctx, out, in, inl) EVP_dispatch_fips_cipher(ctx, out, in, inl)
 #else
 # define M_do_cipher(ctx, out, in, inl) ctx->cipher->do_cipher(ctx, out, in, inl)
 #endif
