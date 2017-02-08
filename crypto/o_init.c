@@ -130,7 +130,7 @@ static void init_fips_mode_from_svtcfg(void)
         } 
         else 
         {	
-            fprintf(stderr,"Unable to determin desired FIPS mode: unable to open %s\n", cfg_file_nm);
+            fprintf(stderr,"Unable to determine desired FIPS mode: unable to open %s\n", cfg_file_nm);
             CRYPTOerr(CRYPTO_F_INIT_FIPS_MODE_FROM_SVTCFG, CRYPTO_R_FIPS_MODE_NOT_SUPPORTED);
             ERR_add_error_data(2, "OpenSSL unable open SVT configuration: ", strerror(errno));
         }   
