@@ -79,7 +79,7 @@ extern int GetThreadID(void);
 #ifndef OPENSSL_NO_RSA
 # include <openssl/rsa.h>
 #endif
-#ifndef OPENSSL_NO_DSA
+#if !defined(OPENSSL_NO_DSA) && !defined(OPENSSL_FIPS) 
 # include <openssl/dsa.h>
 #endif
 #ifndef OPENSSL_NO_DH
@@ -133,7 +133,7 @@ static int aep_mod_exp_mont(BIGNUM *r, const BIGNUM *a, const BIGNUM *p,
 #  endif
 
 /* DSA stuff */
-#  ifndef OPENSSL_NO_DSA
+#  if !defined(OPENSSL_NO_DSA) && !defined(OPENSSL_FIPS) 
 static int aep_dsa_mod_exp(DSA *dsa, BIGNUM *rr, BIGNUM *a1,
                            BIGNUM *p1, BIGNUM *a2, BIGNUM *p2, BIGNUM *m,
                            BN_CTX *ctx, BN_MONT_CTX *in_mont);
@@ -194,7 +194,7 @@ static RSA_METHOD aep_rsa = {
 };
 #  endif
 
-#  ifndef OPENSSL_NO_DSA
+#  if !defined(OPENSSL_NO_DSA) && !defined(OPENSSL_FIPS) 
 /* Our internal DSA_METHOD that we provide pointers to */
 static DSA_METHOD aep_dsa = {
     "Aep DSA method",
@@ -272,7 +272,7 @@ static int bind_aep(ENGINE *e)
 #  ifndef OPENSSL_NO_RSA
     const RSA_METHOD *meth1;
 #  endif
-#  ifndef OPENSSL_NO_DSA
+#  if !defined(OPENSSL_NO_DSA) && !defined(OPENSSL_FIPS) 
     const DSA_METHOD *meth2;
 #  endif
 #  ifndef OPENSSL_NO_DH
@@ -284,7 +284,7 @@ static int bind_aep(ENGINE *e)
 #  ifndef OPENSSL_NO_RSA
         !ENGINE_set_RSA(e, &aep_rsa) ||
 #  endif
-#  ifndef OPENSSL_NO_DSA
+#  if !defined(OPENSSL_NO_DSA) && !defined(OPENSSL_FIPS) 
         !ENGINE_set_DSA(e, &aep_dsa) ||
 #  endif
 #  ifndef OPENSSL_NO_DH
@@ -316,7 +316,7 @@ static int bind_aep(ENGINE *e)
     aep_rsa.rsa_priv_dec = meth1->rsa_priv_dec;
 #  endif
 
-#  ifndef OPENSSL_NO_DSA
+#  if !defined(OPENSSL_NO_DSA) && !defined(OPENSSL_FIPS) 
     /*
      * Use the DSA_OpenSSL() method and just hook the mod_exp-ish bits.
      */
@@ -810,7 +810,7 @@ static int aep_rsa_mod_exp(BIGNUM *r0, const BIGNUM *I, RSA *rsa, BN_CTX *ctx)
 }
 #  endif
 
-#  ifndef OPENSSL_NO_DSA
+#  if !defined(OPENSSL_NO_DSA) && !defined(OPENSSL_FIPS) 
 static int aep_dsa_mod_exp(DSA *dsa, BIGNUM *rr, BIGNUM *a1,
                            BIGNUM *p1, BIGNUM *a2, BIGNUM *p2, BIGNUM *m,
                            BN_CTX *ctx, BN_MONT_CTX *in_mont)
