@@ -29,7 +29,7 @@ tar -xvf openssl-fips-*.tar.gz
 
 :BUILDFOM
 cd openssl-fips-*
-perl Configure %DEBUGOPT%VC-WIN64A no-shared no-asm no-zlib --prefix=%FOMDIR%
+perl Configure %DEBUGOPT%VC-WIN64A fipscanisteronly no-shared no-asm no-zlib --prefix=%FOMDIR%
 call ms\do_win64a.bat
 nmake -f ms\%NTMAK% clean
 nmake -f ms\%NTMAK%
