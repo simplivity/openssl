@@ -96,7 +96,7 @@ int RSA_generate_key_ex(RSA *rsa, int bits, BIGNUM *e_value, BN_GENCB *cb)
         return rsa->meth->rsa_keygen(rsa, bits, e_value, cb);
 #ifdef OPENSSL_FIPS
     if (FIPS_mode())
-        return FIPS_rsa_x931_generate_key_ex(rsa, bits, e_value, cb);
+        return FIPS_rsa_generate_key_ex(rsa, bits, e_value, cb);
 #endif
     return rsa_builtin_keygen(rsa, bits, e_value, cb);
 }
