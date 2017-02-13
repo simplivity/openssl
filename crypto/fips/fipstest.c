@@ -23,6 +23,87 @@ int main(int argc, char *argv[])
 #else
 static BIO *out;
 
+/*
+ * These are the testcase identifiers as they are configured
+ * in testrails for each test case covered in this module.
+ */
+#define TESTRAILS_TC_RSA2048    201893
+#define TESTRAILS_TC_RSA3072    201895
+#define TESTRAILS_TC_RSA1024    201896
+#define TESTRAILS_TC_RSA4096    201897
+#define TESTRAILS_TC_SMALL_E    201898
+#define TESTRAILS_TC_EVEN_E     201899
+
+/*
+ * The TESTRAILS_RESULT enum aligns with the values defined
+ * by the TESTRAILS REST API:
+ * http://docs.gurock.com/testrail-api2/reference-results#add_result
+*/
+typedef enum
+{
+    TEST_PASSED = 1,
+    TEST_BLOCKED,
+    TEST_UNTESTED,
+    TEST_RETEST,
+    TEST_FAILED
+} TESTRAILS_RESULT;
+
+#define TESTRAILS_USER      "svtautomation"
+#define TESTRAILS_PWD       "svtrfs29LAB"
+#define TESTRAILS_SERVER    "testrail.us-east01.simplivt.local"
+/*
+ * This function will use the Testrails REST API to update the result
+ * for a single test case.  The TESTRAILS_RUN_ID environment variable needs to be
+ * set before running this test suite.  If the run ID isn't known, then
+ * this function will be a no-op.
+ */
+static void fips_update_testrails(int testcase_id, TESTRAILS_RESULT result,
+        char *comment)
+{
+    char cmd[1024];    
+    int run_id;
+    char *run_env;
+
+    /*
+     * The TESTRAILS_RUN_ID environment variable must be set to update
+     * testrails.  If it's not set, we bail.
+     */
+    run_env = getenv("TESTRAILS_RUN_ID");
+    if (!run_env) return;
+    run_id = atoi(run_env);
+
+    /*
+     * Issue a Curl command to pop the Testrails REST API with the test result
+     */
+    snprintf(cmd, 1024,
+        "curl --insecure -H \"Content-Type: application/json\" "
+        "-u \"%s:%s\" "
+        "-d '{ \"status_id\": %d, \"comment\": \"%s\", \"elapsed\": "
+        "\"1s\", \"version\": \"%s\" }' "
+        "\"https://%s//testrail/index.php?/api/v2/add_result_for_case/%d/%d\"",
+        TESTRAILS_USER, TESTRAILS_PWD,
+        result, comment, 
+        SSLeay_version(SSLEAY_VERSION), 
+        TESTRAILS_SERVER,
+        run_id, testcase_id);
+    //printf("%s\n", cmd);
+    system(cmd);
+}
+
+/*
+ * Marks all test cases as with same result in Testrails
+ */
+static void fips_testrails_set_all(TESTRAILS_RESULT result, char *comment)
+{
+    fips_update_testrails(TESTRAILS_TC_RSA2048, result, comment);
+    fips_update_testrails(TESTRAILS_TC_RSA3072, result, comment);
+    fips_update_testrails(TESTRAILS_TC_RSA1024, result, comment);
+    fips_update_testrails(TESTRAILS_TC_RSA4096, result, comment);
+    fips_update_testrails(TESTRAILS_TC_SMALL_E, result, comment);
+    fips_update_testrails(TESTRAILS_TC_EVEN_E, result, comment);
+}
+
+
 # ifdef OPENSSL_SYS_WIN16
 #  define MS_CALLBACK     _far _loadds
 # else
@@ -110,8 +191,10 @@ static int fips_test_rsa_keygen()
     if (fips_test_create_rsa_key(2048, 65537))
     {
         BIO_printf(out, "  2048 bit keypair generation test failed!!!\n");
+        fips_update_testrails(TESTRAILS_TC_RSA2048, TEST_FAILED, "keygen failed");
         return 1;
     }
+    fips_update_testrails(TESTRAILS_TC_RSA2048, TEST_PASSED, "keygen passed");
 
     /*
      * Test #2, create a 3072 bit keypair with FIPS enabled
@@ -121,8 +204,10 @@ static int fips_test_rsa_keygen()
     if (fips_test_create_rsa_key(3072, 65537))
     {
         BIO_printf(out, "  3072 bit keypair generation test failed!!!\n");
+        fips_update_testrails(TESTRAILS_TC_RSA3072, TEST_FAILED, "keygen failed");
         return 1;
     }
+    fips_update_testrails(TESTRAILS_TC_RSA3072, TEST_PASSED, "keygen passed");
 
     /*
      * Test #3, create a 1024 bit keypair with FIPS enabled
@@ -132,8 +217,10 @@ static int fips_test_rsa_keygen()
     if (!fips_test_create_rsa_key(1024, 65537))
     {
         BIO_printf(out, "  1024 bit keypair generation didn't fail!!!\n");
+        fips_update_testrails(TESTRAILS_TC_RSA1024, TEST_FAILED, "1024 not blocked");
         return 1;
     }
+    fips_update_testrails(TESTRAILS_TC_RSA1024, TEST_PASSED, "1024 blocked as expected");
 
     /*
      * Test #4, create a 4096 bit keypair with FIPS enabled
@@ -143,8 +230,10 @@ static int fips_test_rsa_keygen()
     if (!fips_test_create_rsa_key(4096, 65537))
     {
         BIO_printf(out, "  4096 bit keypair generation didn't fail!!!\n");
+        fips_update_testrails(TESTRAILS_TC_RSA4096, TEST_FAILED, "4096 not blocked");
         return 1;
     }
+    fips_update_testrails(TESTRAILS_TC_RSA4096, TEST_PASSED, "4096 blocked as expected");
 
     /*
      * Test #5, create 2048 bit keypair with small exponent
@@ -154,8 +243,10 @@ static int fips_test_rsa_keygen()
     if (!fips_test_create_rsa_key(2048, 3))
     {
         BIO_printf(out, "  small exponent keypair generation didn't fail!!!\n");
+        fips_update_testrails(TESTRAILS_TC_SMALL_E, TEST_FAILED, "small exponent not blocked");
         return 1;
     }
+    fips_update_testrails(TESTRAILS_TC_SMALL_E, TEST_PASSED, "small exponent failed as expected");
 
     /*
      * Test #6, create 2048 bit keypair with even exponent
@@ -165,14 +256,17 @@ static int fips_test_rsa_keygen()
     if (!fips_test_create_rsa_key(2048, 65538))
     {
         BIO_printf(out, "  even exponent keypair generation didn't fail!!!\n");
+        fips_update_testrails(TESTRAILS_TC_EVEN_E, TEST_FAILED, "even exponent not blocked");
         return 1;
     }
+    fips_update_testrails(TESTRAILS_TC_EVEN_E, TEST_PASSED, "even exponent blocked as expected");
 
     /*
      * All tests have passed, return success
      */
     return 0;
 }
+
 
 int main(int argc, char *argv[])
 {
@@ -195,6 +289,7 @@ int main(int argc, char *argv[])
     {
         ERR_print_errors(out);
         BIO_printf(out, "Failed to enter FIPS mode - test failed.\n");
+        fips_testrails_set_all(TEST_BLOCKED, "FIPS_mode_set failed");
         goto err;
     }
     if (fips_test_rsa_keygen())
