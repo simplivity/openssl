@@ -12,6 +12,7 @@
 #include <openssl/ec.h>
 #include <openssl/rsa.h>
 #include <openssl/dsa.h>
+#include <openssl/pem.h>
 #include <openssl/cmac.h>
 #include <openssl/objects.h>
 #include <openssl/rand.h>
@@ -301,6 +302,145 @@ static int fips_test_rsa_keygen()
     return 0;
 }
 
+
+#define FIPS_RSA_KEY_1024   "keyP1.ss"  //Assumes tests are run from the test directory
+#define FIPS_RSA_DATA       "the cow jumped over the moon."
+#define FIPS_RSA_DATA_LEN   29
+/*
+ * Expected signature when using SHA-256 with keyP1.ss
+ */
+static unsigned char fips_rsa_sig[] = 
+{
+    0x31,0x8e,0x2e,0x6f,0xe5,0x42,0x74,0x4b,
+    0x9d,0x64,0x07,0x90,0x3b,0x9a,0xb7,0x01,
+    0x46,0x76,0x58,0xfe,0xf4,0x46,0xe0,0x1b,
+    0x98,0x86,0x24,0x67,0x6b,0xac,0xe0,0x72,
+    0xa4,0xe2,0x79,0xf7,0xed,0x36,0x31,0x2d,
+    0x94,0x97,0xb7,0x5b,0x75,0xc1,0xab,0x2d,
+    0x47,0x80,0xc9,0x4d,0xb2,0x4e,0xf0,0x1a,
+    0x66,0xf2,0x9e,0x34,0xa0,0xaf,0x49,0x9e,
+    0xf6,0x6f,0x14,0x48,0xfe,0xe1,0xd5,0xbe,
+    0x21,0x1e,0x2e,0xa3,0x13,0x0e,0xc8,0x75,
+    0x8e,0x9f,0x16,0x53,0x1b,0xb3,0x5b,0x99,
+    0xbb,0xea,0x84,0xd3,0x9e,0x02,0x03,0xae,
+    0x15,0x4e,0x39,0x81,0x74,0x3c,0xc9,0x82,
+    0xe1,0x10,0xdd,0x2f,0xe8,0x54,0x4f,0xd3,
+    0xa7,0x22,0x65,0x8e,0x24,0xae,0xa0,0x89,
+    0xa4,0xa8,0xed,0x46,0x45,0xfe,0xa7,0xf3
+};
+
+/*
+ * Runs all the RSA sign/verify tests to ensure
+ * SP800-131a minimum key size constraints.
+ *
+ * Returns 0 on success
+ */
+static int fips_test_rsa_signverify()
+{
+    EVP_MD_CTX mctx;
+    EVP_PKEY *key = NULL;
+    BIO *b = NULL;
+    int rv = 1;
+    const EVP_MD *md = EVP_sha256();
+    unsigned int s_len;
+    unsigned char sig[256];
+
+    BIO_printf(out, " RSA SP800-131a sign/verify tests...\n");
+
+    /*
+     * Read in the 1024 bit key. Since we can't create a 1024-bit
+     * key while in FIPS mode, we load one from disk.
+     */
+    BIO_printf(out, "  loading static 1024-bit key from disk...\n");
+    b = BIO_new(BIO_s_file());
+    if (!b)
+    {
+        ERR_print_errors(out);
+        goto err;
+    }
+    if (BIO_read_filename(b, FIPS_RSA_KEY_1024) <= 0) 
+    {
+        BIO_printf(out, "  Error opening %s, are you running fipstest from the test directory?\n", 
+                FIPS_RSA_KEY_1024);
+        ERR_print_errors(out);
+        goto err;
+    }
+    key = PEM_read_bio_PrivateKey(b, NULL, NULL, NULL);
+    if (!key) 
+    {
+        BIO_printf(out, "  Error reading %s\n", FIPS_RSA_KEY_1024);
+        ERR_print_errors(out);
+        goto err;
+    }
+
+    /*
+     * Test #1, attempt signing using 1024 bit key
+     */
+    BIO_printf(out, "  attempt 1024 RSA signature generation (should FAIL)...\n");
+    EVP_MD_CTX_init(&mctx);
+    if (!EVP_SignInit_ex(&mctx, md, NULL))
+    {
+        BIO_printf(out, "  EVP_SignInit_ex failed\n");
+        ERR_print_errors(out);
+        goto err;
+    }
+    if (!EVP_SignUpdate(&mctx, FIPS_RSA_DATA, FIPS_RSA_DATA_LEN))
+    {
+        BIO_printf(out, "  EVP_SignUpdate failed\n");
+        ERR_print_errors(out);
+        goto err;
+    }
+    if (!EVP_SignFinal(&mctx, sig, &s_len, key)) 
+    {
+        BIO_printf(out, "  RSA signature generation failed as expected.\n");
+        ERR_print_errors(out);
+    } else {
+        BIO_printf(out, "  RSA signing did not fail, test case failed!!!!\n");
+        goto err;
+    }
+    EVP_MD_CTX_cleanup(&mctx);
+
+
+    /*
+     * Test #2, attempt verify using 1024 bit key
+     */
+    BIO_printf(out, "  attempt 1024 RSA verify (should succeed)...\n");
+    EVP_MD_CTX_init(&mctx);
+    if (!EVP_VerifyInit_ex(&mctx, md, NULL))
+    {
+        BIO_printf(out, "  EVP_VerifyInit_ex failed\n");
+        ERR_print_errors(out);
+        goto err;
+    }
+    if (!EVP_VerifyUpdate(&mctx, FIPS_RSA_DATA, FIPS_RSA_DATA_LEN))
+    {
+        BIO_printf(out, "  EVP_VerifyUpdate failed\n");
+        ERR_print_errors(out);
+        goto err;
+    }
+    if (EVP_VerifyFinal(&mctx, fips_rsa_sig, 128, key) <= 0) 
+    {
+        BIO_printf(out, "  RSA verify failed, test case failed!!!\n");
+        ERR_print_errors(out);
+        goto err;
+    } else {
+        BIO_printf(out, "  RSA verify succeeded, test case passed.\n");
+    }
+    EVP_MD_CTX_cleanup(&mctx);
+
+    /*
+     * All tests have passed, return success
+     */
+    rv = 0;
+
+err:
+    if (b != NULL) BIO_free(b);
+    if (key != NULL) EVP_PKEY_free(key);
+
+    return rv;
+}
+
+
 /*
  * Returns 0 if the cipher failed to initialize
  */
@@ -562,6 +702,76 @@ static int fips_test_disabled_mac_algs()
     return ret;
 }
 
+
+/*
+ * This is used for Diffie-Hellman testing
+ */
+static DH *get_dh1024()
+{
+    static unsigned char dh1024_p[] = {
+        0xF8, 0x81, 0x89, 0x7D, 0x14, 0x24, 0xC5, 0xD1, 0xE6, 0xF7, 0xBF, 0x3A,
+        0xE4, 0x90, 0xF4, 0xFC, 0x73, 0xFB, 0x34, 0xB5, 0xFA, 0x4C, 0x56, 0xA2,
+        0xEA, 0xA7, 0xE9, 0xC0, 0xC0, 0xCE, 0x89, 0xE1, 0xFA, 0x63, 0x3F, 0xB0,
+        0x6B, 0x32, 0x66, 0xF1, 0xD1, 0x7B, 0xB0, 0x00, 0x8F, 0xCA, 0x87, 0xC2,
+        0xAE, 0x98, 0x89, 0x26, 0x17, 0xC2, 0x05, 0xD2, 0xEC, 0x08, 0xD0, 0x8C,
+        0xFF, 0x17, 0x52, 0x8C, 0xC5, 0x07, 0x93, 0x03, 0xB1, 0xF6, 0x2F, 0xB8,
+        0x1C, 0x52, 0x47, 0x27, 0x1B, 0xDB, 0xD1, 0x8D, 0x9D, 0x69, 0x1D, 0x52,
+        0x4B, 0x32, 0x81, 0xAA, 0x7F, 0x00, 0xC8, 0xDC, 0xE6, 0xD9, 0xCC, 0xC1,
+        0x11, 0x2D, 0x37, 0x34, 0x6C, 0xEA, 0x02, 0x97, 0x4B, 0x0E, 0xBB, 0xB1,
+        0x71, 0x33, 0x09, 0x15, 0xFD, 0xDD, 0x23, 0x87, 0x07, 0x5E, 0x89, 0xAB,
+        0x6B, 0x7C, 0x5F, 0xEC, 0xA6, 0x24, 0xDC, 0x53,
+    };
+    static unsigned char dh1024_g[] = {
+        0x02,
+    };
+    DH *dh;
+
+    if ((dh = DH_new()) == NULL)
+        return (NULL);
+    dh->p = BN_bin2bn(dh1024_p, sizeof(dh1024_p), NULL);
+    dh->g = BN_bin2bn(dh1024_g, sizeof(dh1024_g), NULL);
+    if ((dh->p == NULL) || (dh->g == NULL)) {
+        DH_free(dh);
+        return (NULL);
+    }
+    return (dh);
+}
+
+
+/*
+ * Tests Diffie-Hellman meets SP800-131a minimum key
+ * size requirements. 
+ *
+ * Returns 0 on success
+ */
+static int fips_test_dh()
+{
+    DH *dh = NULL;
+
+    BIO_printf(out, "  testing DH minimum key size...\n");
+    dh = get_dh1024();
+    if (!dh) 
+    {
+        BIO_printf(out, "  Unable to load 1024-bit DH parameters!!!\n");
+        return 1;
+    }
+
+    /*
+     * Test that 1024 bit diffie-hellman no longer works 
+     * when FIPS is enabled.
+     */
+    if (DH_generate_key(dh))
+    {
+        BIO_printf(out, "  DH key generation succeed when it should fail, test case failed!!!\n");
+        return 1;
+    }
+    BIO_printf(out, "  DH key generation failed as expected, test case passed.\n");
+
+    if (dh) DH_free(dh);
+    return 0;
+}
+
+
 int main(int argc, char *argv[])
 {
     int ret = 1;
@@ -591,6 +801,14 @@ int main(int argc, char *argv[])
     /*
      * Start the testing
      */
+    if (fips_test_dh())
+    {
+        goto err;
+    }
+    if (fips_test_rsa_signverify())
+    {
+        goto err;
+    }
     if (fips_test_rsa_keygen())
     {
         goto err;

@@ -96,6 +96,7 @@ static ERR_STRING_DATA EVP_str_functs[] = {
      "EVP_CIPHER_CTX_set_key_length"},
     {ERR_FUNC(EVP_F_EVP_DECRYPTFINAL_EX), "EVP_DecryptFinal_ex"},
     {ERR_FUNC(EVP_F_EVP_DIGESTINIT_EX), "EVP_DigestInit_ex"},
+    {ERR_FUNC(EVP_F_EVP_DIGESTSIGNFINAL), "EVP_DigestSignFinal"},
     {ERR_FUNC(EVP_F_EVP_ENCRYPTFINAL_EX), "EVP_EncryptFinal_ex"},
     {ERR_FUNC(EVP_F_EVP_MD_CTX_COPY_EX), "EVP_MD_CTX_copy_ex"},
     {ERR_FUNC(EVP_F_EVP_MD_SIZE), "EVP_MD_size"},
