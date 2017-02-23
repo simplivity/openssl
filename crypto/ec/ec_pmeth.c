@@ -177,6 +177,18 @@ static int pkey_ec_sign(EVP_PKEY_CTX *ctx, unsigned char *sig, size_t *siglen,
     else
         type = NID_sha1;
 
+#ifdef OPENSSL_FIPS
+    /*
+     * SP800-131a doesn't allow SHA-1, MD5, and other oldies
+     */
+    if (FIPS_mode() && type != NID_sha224 && type != NID_sha256 && 
+        type != NID_sha384 && type != NID_sha512)
+    {
+        ECerr(EC_F_PKEY_EC_SIGN, EC_R_INVALID_DIGEST);
+        return 0;
+    }
+#endif
+
     ret = ECDSA_sign(type, tbs, tbslen, sig, &sltmp, ec);
 
     if (ret <= 0)

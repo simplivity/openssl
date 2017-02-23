@@ -52,6 +52,13 @@ static BIO *out;
 #define TESTRAILS_TC_P256       201924
 #define TESTRAILS_TC_P384       201925
 #define TESTRAILS_TC_CMAC       201926
+#define TESTRAILS_TC_DH                 277427
+#define TESTRAILS_TC_RSA_SIGN           277428
+#define TESTRAILS_TC_RSA_VER            277429
+#define TESTRAILS_TC_SHA1_RSA_SIGN      277430
+#define TESTRAILS_TC_SHA1_RSA_VER       277432
+#define TESTRAILS_TC_SHA1_ECDSA_SIGN    277431
+#define TESTRAILS_TC_SHA1_ECDSA_VER     277433
 
 
 
@@ -162,19 +169,38 @@ static int MS_CALLBACK genrsa_cb(int p, int n, BN_GENCB *cb)
     return 1;
 }
 
+#define FIPS_RSA_KEY_1024   "fips_rsa_key_1024.ss" 
+#define FIPS_RSA_KEY_2048   "fips_rsa_key_2048.ss" 
+#define FIPS_EC_KEY_256     "fips_ec_key_256.ss" 
+#define FIPS_RSA_DATA       "the cow jumped over the moon."
+#define FIPS_RSA_DATA_LEN   29
+/*
+ * Expected signatures when doing verify tests.  Some
+ * of these tests require us to generate signatures with FIPS
+ * disabled before enabling FIPS mode.
+ */
+static unsigned char *fips_rsa_sig_1024 = NULL;  
+static unsigned char *fips_rsa_sig_2048 = NULL;  
+static unsigned char *fips_ec_sig_256 = NULL;  
+static int fips_ec_sig_len = 0;
+
 /*
  * Attempts to create a new RSA key pair.  When FIPS
  * is enabled, the FOM will do a pairwise test after
  * creating the key, ensuring the key is good.
+ * If filename argument is non-NULL, it will save the
+ * key to the local filesystem in PEM format.
  *
  * Returns 0 on success
  */
-static int fips_test_create_rsa_key(int bits, int exponent)
+static int fips_test_create_rsa_key(int bits, int exponent, char *filename)
 {
     int ret = 1;
     RSA *rsa = NULL;
     BIGNUM *e = NULL;
     BN_GENCB cb;
+    EVP_PKEY *key = NULL;
+    BIO *b;
 
     rsa = RSA_new();
     if (!rsa) 
@@ -202,12 +228,244 @@ static int fips_test_create_rsa_key(int bits, int exponent)
         goto err;
     }
 
+    /*
+     * Persist the key if needed
+     */
+    if (filename) 
+    {
+        key = EVP_PKEY_new();
+        if (EVP_PKEY_assign_RSA(key, rsa) <= 0) 
+        {
+           ERR_print_errors(out);
+           exit(1);
+        }
+        b = BIO_new_file(filename, "w+");
+        if (!b)
+        {
+            ERR_print_errors(out);
+            exit(1);
+        }
+        if (!PEM_write_bio_PrivateKey(b, key, NULL, NULL, 0, NULL, NULL))
+        {
+           ERR_print_errors(out);
+           exit(1);
+        }
+        EVP_PKEY_free(key);
+        rsa = NULL;
+        BIO_free(b);
+    }
+
     ret = 0;
 err:
     if (rsa) RSA_free(rsa);
     if (e) BN_free(e);
     return ret;
 }
+
+/*
+ * Attempts to create a new ECDSA key pair.  When FIPS
+ * is enabled, the FOM will do a pairwise test after
+ * creating the key, ensuring the key is good.
+ * If filename argument is non-NULL, it will save the
+ * key to the local filesystem in PEM format.
+ *
+ * Returns 0 on success
+ */
+static int fips_test_create_ecdsa_key(int nid, char *filename)
+{
+    int ret = 1;
+    EC_KEY *ec_key = NULL;
+    EVP_PKEY *key = NULL;
+    BIO *b;
+
+    ec_key = EC_KEY_new_by_curve_name(nid);
+    if (!ec_key) 
+    {
+        ERR_print_errors(out);
+        BIO_printf(out, "  EC_KEY_new_by_curve_name() failed.\n");
+        goto err;
+    }
+
+    if (!EC_KEY_generate_key(ec_key)) 
+    {
+        ERR_print_errors(out);
+        BIO_printf(out, "  EC keygen failed.\n");
+        goto err;
+    }
+
+    /*
+     * Persist the key if needed
+     */
+    if (filename) 
+    {
+        key = EVP_PKEY_new();
+        if (EVP_PKEY_assign_EC_KEY(key, ec_key) <= 0) 
+        {
+           ERR_print_errors(out);
+           exit(1);
+        }
+        b = BIO_new_file(filename, "w+");
+        if (!b)
+        {
+            ERR_print_errors(out);
+            exit(1);
+        }
+        if (!PEM_write_bio_PrivateKey(b, key, NULL, NULL, 0, NULL, NULL))
+        {
+           ERR_print_errors(out);
+           exit(1);
+        }
+        EVP_PKEY_free(key);
+        ec_key = NULL;
+        BIO_free(b);
+    }
+
+    ret = 0;
+err:
+    if (ec_key) EC_KEY_free(ec_key);
+    return ret;
+}
+
+/*
+ * Loads a PEM encoded key into an EVP_PKEY
+ */
+static EVP_PKEY *fips_test_load_key(char *filename)
+{
+    EVP_PKEY *key = NULL;
+    BIO *b;
+
+    b = BIO_new(BIO_s_file());
+    if (!b)
+    {
+        ERR_print_errors(out);
+        exit(1);
+    }
+    if (BIO_read_filename(b, filename) <= 0) 
+    {
+        BIO_printf(out, "  Error opening %s.\n", filename);
+        ERR_print_errors(out);
+        exit(1);
+    }
+    key = PEM_read_bio_PrivateKey(b, NULL, NULL, NULL);
+    if (!key) 
+    {
+        BIO_printf(out, "  Error reading %s\n", filename);
+        ERR_print_errors(out);
+        exit(1);
+    }
+    BIO_free(b);
+
+    return key;
+}
+
+/*
+ * This routine is used to setup some keys and signatures
+ * while FIPS is disabled.  Some of the test cases require
+ * that we have signatures generated in a non-FIPS compliant
+ * manner.  This routine must be invoked prior to enabling
+ * FIPS mode.
+ */
+static void fips_test_setup_nonfips_prereqs()
+{
+    EVP_PKEY *key = NULL;
+    EVP_MD_CTX mctx;
+    unsigned int s_len;
+
+    /*
+     * Create a RSA keys that we can use later.
+     */
+    fips_test_create_rsa_key(2048, 65537, FIPS_RSA_KEY_2048);
+    fips_test_create_rsa_key(1024, 65537, FIPS_RSA_KEY_1024);
+
+    /*
+     * Create EC key to be used later.
+     */
+    fips_test_create_ecdsa_key(NID_X9_62_prime256v1, FIPS_EC_KEY_256);
+
+    /*
+     * Create a RSA signature using SHA-1 2048-bit that we can use later.
+     */
+    key = fips_test_load_key(FIPS_RSA_KEY_2048);
+    EVP_MD_CTX_init(&mctx);
+    if (!EVP_SignInit_ex(&mctx, EVP_sha1(), NULL))
+    {
+        BIO_printf(out, "  EVP_SignInit_ex failed\n");
+        ERR_print_errors(out);
+        exit(1);
+    }
+    if (!EVP_SignUpdate(&mctx, FIPS_RSA_DATA, FIPS_RSA_DATA_LEN))
+    {
+        BIO_printf(out, "  EVP_SignUpdate failed\n");
+        ERR_print_errors(out);
+        exit(1);
+    }
+    fips_rsa_sig_2048 = malloc(256);
+    if (!EVP_SignFinal(&mctx, fips_rsa_sig_2048, &s_len, key)) 
+    {
+        BIO_printf(out, "  RSA signing failed during pre-reqs, all tests aborted.\n");
+        ERR_print_errors(out);
+        exit(1);
+    }
+    EVP_MD_CTX_cleanup(&mctx);
+    EVP_PKEY_free(key);
+
+    /*
+     * Create a RSA signature using SHA-256 1024-bit that we can use later.
+     */
+    key = fips_test_load_key(FIPS_RSA_KEY_1024);
+    EVP_MD_CTX_init(&mctx);
+    if (!EVP_SignInit_ex(&mctx, EVP_sha256(), NULL))
+    {
+        BIO_printf(out, "  EVP_SignInit_ex failed\n");
+        ERR_print_errors(out);
+        exit(1);
+    }
+    if (!EVP_SignUpdate(&mctx, FIPS_RSA_DATA, FIPS_RSA_DATA_LEN))
+    {
+        BIO_printf(out, "  EVP_SignUpdate failed\n");
+        ERR_print_errors(out);
+        exit(1);
+    }
+    fips_rsa_sig_1024 = malloc(128);
+    if (!EVP_SignFinal(&mctx, fips_rsa_sig_1024, &s_len, key)) 
+    {
+        BIO_printf(out, "  RSA signing failed during pre-reqs, all tests aborted.\n");
+        ERR_print_errors(out);
+        exit(1);
+    }
+    EVP_MD_CTX_cleanup(&mctx);
+    EVP_PKEY_free(key);
+
+    /*
+     * Create a ECDSA signature using SHA-1 256-bit that we can use later.
+     */
+    key = fips_test_load_key(FIPS_EC_KEY_256);
+    EVP_MD_CTX_init(&mctx);
+    if (!EVP_SignInit_ex(&mctx, EVP_sha1(), NULL))
+    {
+        BIO_printf(out, "  EVP_SignInit_ex failed\n");
+        ERR_print_errors(out);
+        exit(1);
+    }
+    if (!EVP_SignUpdate(&mctx, FIPS_RSA_DATA, FIPS_RSA_DATA_LEN))
+    {
+        BIO_printf(out, "  EVP_SignUpdate failed\n");
+        ERR_print_errors(out);
+        exit(1);
+    }
+    fips_ec_sig_256 = malloc(256);
+    if (!EVP_SignFinal(&mctx, fips_ec_sig_256, &s_len, key)) 
+    {
+        BIO_printf(out, "  ECDSA signing failed during pre-reqs, all tests aborted.\n");
+        ERR_print_errors(out);
+        exit(1);
+    }
+    fips_ec_sig_len = s_len;
+    EVP_MD_CTX_cleanup(&mctx);
+    EVP_PKEY_free(key);
+}
+
+
 
 /*
  * Runs all the RSA key generation test cases
@@ -223,7 +481,7 @@ static int fips_test_rsa_keygen()
      * expect: success
      */
     BIO_printf(out, "  testing 2048 bit keypair generation...\n");
-    if (fips_test_create_rsa_key(2048, 65537))
+    if (fips_test_create_rsa_key(2048, 65537, NULL))
     {
         BIO_printf(out, "  2048 bit keypair generation test failed!!!\n");
         fips_update_testrails(TESTRAILS_TC_RSA2048, TEST_FAILED, "keygen failed");
@@ -236,7 +494,7 @@ static int fips_test_rsa_keygen()
      * expect: success
      */
     BIO_printf(out, "  testing 3072 bit keypair generation...\n");
-    if (fips_test_create_rsa_key(3072, 65537))
+    if (fips_test_create_rsa_key(3072, 65537, NULL))
     {
         BIO_printf(out, "  3072 bit keypair generation test failed!!!\n");
         fips_update_testrails(TESTRAILS_TC_RSA3072, TEST_FAILED, "keygen failed");
@@ -249,7 +507,7 @@ static int fips_test_rsa_keygen()
      * expect: fail 
      */
     BIO_printf(out, "  testing 1024 bit keypair generation (should FAIL)...\n");
-    if (!fips_test_create_rsa_key(1024, 65537))
+    if (!fips_test_create_rsa_key(1024, 65537, NULL))
     {
         BIO_printf(out, "  1024 bit keypair generation didn't fail!!!\n");
         fips_update_testrails(TESTRAILS_TC_RSA1024, TEST_FAILED, "1024 not blocked");
@@ -262,7 +520,7 @@ static int fips_test_rsa_keygen()
      * expect: fail 
      */
     BIO_printf(out, "  testing 4096 bit keypair generation (should FAIL)...\n");
-    if (!fips_test_create_rsa_key(4096, 65537))
+    if (!fips_test_create_rsa_key(4096, 65537, NULL))
     {
         BIO_printf(out, "  4096 bit keypair generation didn't fail!!!\n");
         fips_update_testrails(TESTRAILS_TC_RSA4096, TEST_FAILED, "4096 not blocked");
@@ -275,7 +533,7 @@ static int fips_test_rsa_keygen()
      * expect: fail
      */
     BIO_printf(out, "  testing small exponent keypair generation (should FAIL)...\n");
-    if (!fips_test_create_rsa_key(2048, 3))
+    if (!fips_test_create_rsa_key(2048, 3, NULL))
     {
         BIO_printf(out, "  small exponent keypair generation didn't fail!!!\n");
         fips_update_testrails(TESTRAILS_TC_SMALL_E, TEST_FAILED, "small exponent not blocked");
@@ -288,7 +546,7 @@ static int fips_test_rsa_keygen()
      * expect: fail
      */
     BIO_printf(out, "  testing even exponent keypair generation (should FAIL)...\n");
-    if (!fips_test_create_rsa_key(2048, 65538))
+    if (!fips_test_create_rsa_key(2048, 65538, NULL))
     {
         BIO_printf(out, "  even exponent keypair generation didn't fail!!!\n");
         fips_update_testrails(TESTRAILS_TC_EVEN_E, TEST_FAILED, "even exponent not blocked");
@@ -302,32 +560,6 @@ static int fips_test_rsa_keygen()
     return 0;
 }
 
-
-#define FIPS_RSA_KEY_1024   "keyP1.ss"  //Assumes tests are run from the test directory
-#define FIPS_RSA_DATA       "the cow jumped over the moon."
-#define FIPS_RSA_DATA_LEN   29
-/*
- * Expected signature when using SHA-256 with keyP1.ss
- */
-static unsigned char fips_rsa_sig[] = 
-{
-    0x31,0x8e,0x2e,0x6f,0xe5,0x42,0x74,0x4b,
-    0x9d,0x64,0x07,0x90,0x3b,0x9a,0xb7,0x01,
-    0x46,0x76,0x58,0xfe,0xf4,0x46,0xe0,0x1b,
-    0x98,0x86,0x24,0x67,0x6b,0xac,0xe0,0x72,
-    0xa4,0xe2,0x79,0xf7,0xed,0x36,0x31,0x2d,
-    0x94,0x97,0xb7,0x5b,0x75,0xc1,0xab,0x2d,
-    0x47,0x80,0xc9,0x4d,0xb2,0x4e,0xf0,0x1a,
-    0x66,0xf2,0x9e,0x34,0xa0,0xaf,0x49,0x9e,
-    0xf6,0x6f,0x14,0x48,0xfe,0xe1,0xd5,0xbe,
-    0x21,0x1e,0x2e,0xa3,0x13,0x0e,0xc8,0x75,
-    0x8e,0x9f,0x16,0x53,0x1b,0xb3,0x5b,0x99,
-    0xbb,0xea,0x84,0xd3,0x9e,0x02,0x03,0xae,
-    0x15,0x4e,0x39,0x81,0x74,0x3c,0xc9,0x82,
-    0xe1,0x10,0xdd,0x2f,0xe8,0x54,0x4f,0xd3,
-    0xa7,0x22,0x65,0x8e,0x24,0xae,0xa0,0x89,
-    0xa4,0xa8,0xed,0x46,0x45,0xfe,0xa7,0xf3
-};
 
 /*
  * Runs all the RSA sign/verify tests to ensure
@@ -351,27 +583,8 @@ static int fips_test_rsa_signverify()
      * Read in the 1024 bit key. Since we can't create a 1024-bit
      * key while in FIPS mode, we load one from disk.
      */
-    BIO_printf(out, "  loading static 1024-bit key from disk...\n");
-    b = BIO_new(BIO_s_file());
-    if (!b)
-    {
-        ERR_print_errors(out);
-        goto err;
-    }
-    if (BIO_read_filename(b, FIPS_RSA_KEY_1024) <= 0) 
-    {
-        BIO_printf(out, "  Error opening %s, are you running fipstest from the test directory?\n", 
-                FIPS_RSA_KEY_1024);
-        ERR_print_errors(out);
-        goto err;
-    }
-    key = PEM_read_bio_PrivateKey(b, NULL, NULL, NULL);
-    if (!key) 
-    {
-        BIO_printf(out, "  Error reading %s\n", FIPS_RSA_KEY_1024);
-        ERR_print_errors(out);
-        goto err;
-    }
+    BIO_printf(out, "  loading 1024-bit key from disk...\n");
+    key = fips_test_load_key(FIPS_RSA_KEY_1024);
 
     /*
      * Test #1, attempt signing using 1024 bit key
@@ -418,7 +631,7 @@ static int fips_test_rsa_signverify()
         ERR_print_errors(out);
         goto err;
     }
-    if (EVP_VerifyFinal(&mctx, fips_rsa_sig, 128, key) <= 0) 
+    if (EVP_VerifyFinal(&mctx, fips_rsa_sig_1024, 128, key) <= 0) 
     {
         BIO_printf(out, "  RSA verify failed, test case failed!!!\n");
         ERR_print_errors(out);
@@ -688,7 +901,7 @@ static int fips_test_disabled_mac_algs()
     /*
      * Test that CMAC is disabled with FIPS on
      */
-    BIO_printf(out, "  testing CMAC disabled...\n");
+    BIO_printf(out, " Testing CMAC disabled...\n");
     ctx = CMAC_CTX_new();
     if (CMAC_Init(ctx, key, 16, EVP_aes_128_cbc(), NULL)) 
     {
@@ -748,7 +961,7 @@ static int fips_test_dh()
 {
     DH *dh = NULL;
 
-    BIO_printf(out, "  testing DH minimum key size...\n");
+    BIO_printf(out, " Testing DH minimum key size...\n");
     dh = get_dh1024();
     if (!dh) 
     {
@@ -772,6 +985,202 @@ static int fips_test_dh()
 }
 
 
+/*
+ * Tests that SHA1 can't be used for signing, only verify.
+ *
+ * Returns 0 on success
+ */
+static int fips_test_sha1_rsa()
+{
+    EVP_MD_CTX mctx;
+    EVP_PKEY *key = NULL;
+    int rv = 1;
+    const EVP_MD *md = EVP_sha1();
+    unsigned int s_len;
+    unsigned char sig[256];
+
+    BIO_printf(out, " SHA-1 SP800-131a RSA sign/verify tests...\n");
+
+    /*
+     * Create a new 2048-bit key that we can use to attempt
+     * generating a SHA1 signature.
+     */
+    fips_test_create_rsa_key(2048, 65537, "tmpkey.ss");
+    key = fips_test_load_key("tmpkey.ss");
+    if (!key) 
+    {
+        BIO_printf(out, "  Unable to create key for RSA SHA-1 testing.\n");
+        ERR_print_errors(out);
+        goto err;
+    }
+
+    /*
+     * Test that SHA1 RSA signature generation fails
+     */
+    BIO_printf(out, "  attempt 2048 SHA-1 RSA signature generation (should FAIL)...\n");
+    EVP_MD_CTX_init(&mctx);
+    if (!EVP_SignInit_ex(&mctx, md, NULL))
+    {
+        BIO_printf(out, "  EVP_SignInit_ex failed\n");
+        ERR_print_errors(out);
+        goto err;
+    }
+    if (!EVP_SignUpdate(&mctx, FIPS_RSA_DATA, FIPS_RSA_DATA_LEN))
+    {
+        BIO_printf(out, "  EVP_SignUpdate failed\n");
+        ERR_print_errors(out);
+        goto err;
+    }
+    if (!EVP_SignFinal(&mctx, sig, &s_len, key)) 
+    {
+        BIO_printf(out, "  RSA SHA-1 signature generation failed as expected.\n");
+        ERR_print_errors(out);
+    } else {
+        BIO_printf(out, "  RSA SHA-1 signing did not fail, test case failed!!!!\n");
+        goto err;
+    }
+    EVP_MD_CTX_cleanup(&mctx);
+    EVP_PKEY_free(key);
+    key = NULL;
+
+    /*
+     * Test that SHA1 RSA verify succeeds
+     */
+    BIO_printf(out, "  attempt 2048 SHA-1 RSA signature verify...\n");
+    key = fips_test_load_key(FIPS_RSA_KEY_2048);
+    EVP_MD_CTX_init(&mctx);
+    if (!EVP_VerifyInit_ex(&mctx, md, NULL))
+    {
+        BIO_printf(out, "  EVP_VerifyInit_ex failed\n");
+        ERR_print_errors(out);
+        goto err;
+    }
+    if (!EVP_VerifyUpdate(&mctx, FIPS_RSA_DATA, FIPS_RSA_DATA_LEN))
+    {
+        BIO_printf(out, "  EVP_VerifyUpdate failed\n");
+        ERR_print_errors(out);
+        goto err;
+    }
+    if (EVP_VerifyFinal(&mctx, fips_rsa_sig_2048, 256, key) <= 0) 
+    {
+        BIO_printf(out, "  RSA verify failed, test case failed!!!\n");
+        ERR_print_errors(out);
+        goto err;
+    } else {
+        BIO_printf(out, "  RSA verify succeeded, test case passed.\n");
+    }
+    EVP_MD_CTX_cleanup(&mctx);
+
+    /*
+     * All test have passed, return sucess
+     */
+    rv = 0;
+err:
+    if (key) EVP_PKEY_free(key);
+    return rv;
+}
+
+/*
+ * Tests that SHA1 can't be used for signing, only verify.
+ *
+ * Returns 0 on success
+ */
+static int fips_test_sha1_ecdsa()
+{
+    EVP_MD_CTX mctx;
+    EVP_PKEY *key = NULL;
+    int rv = 1;
+    const EVP_MD *md = EVP_sha1();
+    unsigned int s_len;
+    unsigned char sig[256];
+
+    BIO_printf(out, " SHA-1 SP800-131a ECDSA sign/verify tests...\n");
+
+    /*
+     * Create a new 256-bit key that we can use to attempt
+     * generating a SHA1 signature.
+     */
+    fips_test_create_ecdsa_key(NID_X9_62_prime256v1, "tmpkey.ss");
+    key = fips_test_load_key("tmpkey.ss");
+    if (!key) 
+    {
+        BIO_printf(out, "  Unable to load key for ECDSA SHA-1 testing.\n");
+        ERR_print_errors(out);
+        goto err;
+    }
+
+    /*
+     * Test that SHA1 ECDSA signature generation fails
+     */
+    BIO_printf(out, "  attempt SHA-1 ECDSA signature generation (should FAIL)...\n");
+    EVP_MD_CTX_init(&mctx);
+    if (!EVP_SignInit_ex(&mctx, md, NULL))
+    {
+        BIO_printf(out, "  EVP_SignInit_ex failed\n");
+        ERR_print_errors(out);
+        goto err;
+    }
+    if (!EVP_SignUpdate(&mctx, FIPS_RSA_DATA, FIPS_RSA_DATA_LEN))
+    {
+        BIO_printf(out, "  EVP_SignUpdate failed\n");
+        ERR_print_errors(out);
+        goto err;
+    }
+    if (!EVP_SignFinal(&mctx, sig, &s_len, key)) 
+    {
+        BIO_printf(out, "  ECDSA SHA-1 signature generation failed as expected.\n");
+        ERR_print_errors(out);
+    } else {
+        BIO_printf(out, "  ECDSA SHA-1 signing did not fail, test case failed!!!!\n");
+        goto err;
+    }
+    EVP_MD_CTX_cleanup(&mctx);
+    EVP_PKEY_free(key);
+    key = NULL;
+
+    /*
+     * Test that SHA1 ECDSA verify succeeds
+     */
+    BIO_printf(out, "  attempt SHA-1 ECDSA signature verify...\n");
+    key = fips_test_load_key(FIPS_EC_KEY_256);
+    if (!key) 
+    {
+        BIO_printf(out, "  Unable to load key for ECDSA SHA-1 testing.\n");
+        ERR_print_errors(out);
+        goto err;
+    }
+    EVP_MD_CTX_init(&mctx);
+    if (!EVP_VerifyInit_ex(&mctx, md, NULL))
+    {
+        BIO_printf(out, "  EVP_VerifyInit_ex failed\n");
+        ERR_print_errors(out);
+        goto err;
+    }
+    if (!EVP_VerifyUpdate(&mctx, FIPS_RSA_DATA, FIPS_RSA_DATA_LEN))
+    {
+        BIO_printf(out, "  EVP_VerifyUpdate failed\n");
+        ERR_print_errors(out);
+        goto err;
+    }
+    if (EVP_VerifyFinal(&mctx, fips_ec_sig_256, fips_ec_sig_len, key) <= 0) 
+    {
+        BIO_printf(out, "  ECDSA verify failed, test case failed!!!\n");
+        ERR_print_errors(out);
+        goto err;
+    } else {
+        BIO_printf(out, "  ECDSA verify succeeded, test case passed.\n");
+    }
+    EVP_MD_CTX_cleanup(&mctx);
+
+    /*
+     * All test have passed, return sucess
+     */
+    rv = 0;
+err:
+    if (key) EVP_PKEY_free(key);
+    return rv;
+}
+
 int main(int argc, char *argv[])
 {
     int ret = 1;
@@ -789,6 +1198,9 @@ int main(int argc, char *argv[])
     BIO_set_fp(out, stdout, BIO_NOCLOSE);
 
     printf("Running FIPS test suite...\n");
+
+    fips_test_setup_nonfips_prereqs();
+
     if (!FIPS_mode_set(1)) 
     {
         ERR_print_errors(out);
@@ -801,6 +1213,14 @@ int main(int argc, char *argv[])
     /*
      * Start the testing
      */
+    if (fips_test_sha1_ecdsa())
+    {
+        goto err;
+    }
+    if (fips_test_sha1_rsa())
+    {
+        goto err;
+    }
     if (fips_test_dh())
     {
         goto err;
@@ -825,6 +1245,10 @@ int main(int argc, char *argv[])
     {
         goto err;
     }
+
+    if (fips_rsa_sig_2048) free(fips_rsa_sig_2048);
+    if (fips_rsa_sig_1024) free(fips_rsa_sig_1024);
+    if (fips_ec_sig_256) free(fips_ec_sig_256);
 
     printf("FIPS test suite passed.\n");
     ret = 0;
