@@ -143,6 +143,13 @@ static void fips_testrails_set_all(TESTRAILS_RESULT result, char *comment)
     fips_update_testrails(TESTRAILS_TC_P384, result, comment);
     fips_update_testrails(TESTRAILS_TC_P521, result, comment);
     fips_update_testrails(TESTRAILS_TC_CMAC, result, comment);
+    fips_update_testrails(TESTRAILS_TC_DH, result, comment);
+    fips_update_testrails(TESTRAILS_TC_RSA_SIGN, result, comment);
+    fips_update_testrails(TESTRAILS_TC_RSA_VER, result, comment);
+    fips_update_testrails(TESTRAILS_TC_SHA1_RSA_SIGN, result, comment);
+    fips_update_testrails(TESTRAILS_TC_SHA1_RSA_VER, result, comment);
+    fips_update_testrails(TESTRAILS_TC_SHA1_ECDSA_SIGN, result, comment);
+    fips_update_testrails(TESTRAILS_TC_SHA1_ECDSA_VER, result, comment);
 }
 
 
@@ -607,8 +614,10 @@ static int fips_test_rsa_signverify()
     {
         BIO_printf(out, "  RSA signature generation failed as expected.\n");
         ERR_print_errors(out);
+        fips_update_testrails(TESTRAILS_TC_RSA_SIGN, TEST_PASSED, "1024-bit RSA sig gen prevented");
     } else {
         BIO_printf(out, "  RSA signing did not fail, test case failed!!!!\n");
+        fips_update_testrails(TESTRAILS_TC_RSA_SIGN, TEST_FAILED, "1024-bit RSA sig gen not prevented");
         goto err;
     }
     EVP_MD_CTX_cleanup(&mctx);
@@ -635,9 +644,11 @@ static int fips_test_rsa_signverify()
     {
         BIO_printf(out, "  RSA verify failed, test case failed!!!\n");
         ERR_print_errors(out);
+        fips_update_testrails(TESTRAILS_TC_RSA_VER, TEST_FAILED, "1024-bit RSA verify not allowed");
         goto err;
     } else {
         BIO_printf(out, "  RSA verify succeeded, test case passed.\n");
+        fips_update_testrails(TESTRAILS_TC_RSA_VER, TEST_PASSED, "1024-bit RSA verify allowed");
     }
     EVP_MD_CTX_cleanup(&mctx);
 
@@ -976,9 +987,11 @@ static int fips_test_dh()
     if (DH_generate_key(dh))
     {
         BIO_printf(out, "  DH key generation succeed when it should fail, test case failed!!!\n");
+        fips_update_testrails(TESTRAILS_TC_DH, TEST_FAILED, "DH 1024-bit not prevented");
         return 1;
     }
     BIO_printf(out, "  DH key generation failed as expected, test case passed.\n");
+    fips_update_testrails(TESTRAILS_TC_DH, TEST_PASSED, "DH 1024-bit prevented");
 
     if (dh) DH_free(dh);
     return 0;
@@ -1035,8 +1048,10 @@ static int fips_test_sha1_rsa()
     {
         BIO_printf(out, "  RSA SHA-1 signature generation failed as expected.\n");
         ERR_print_errors(out);
+        fips_update_testrails(TESTRAILS_TC_SHA1_RSA_SIGN, TEST_PASSED, "RSA SHA-1 sig gen prevented");
     } else {
         BIO_printf(out, "  RSA SHA-1 signing did not fail, test case failed!!!!\n");
+        fips_update_testrails(TESTRAILS_TC_SHA1_RSA_SIGN, TEST_FAILED, "RSA SHA-1 sig gen not prevented");
         goto err;
     }
     EVP_MD_CTX_cleanup(&mctx);
@@ -1065,9 +1080,11 @@ static int fips_test_sha1_rsa()
     {
         BIO_printf(out, "  RSA verify failed, test case failed!!!\n");
         ERR_print_errors(out);
+        fips_update_testrails(TESTRAILS_TC_SHA1_RSA_VER, TEST_FAILED, "RSA SHA-1 verify not allowed");
         goto err;
     } else {
         BIO_printf(out, "  RSA verify succeeded, test case passed.\n");
+        fips_update_testrails(TESTRAILS_TC_SHA1_RSA_VER, TEST_PASSED, "RSA SHA-1 verify allowed");
     }
     EVP_MD_CTX_cleanup(&mctx);
 
@@ -1130,8 +1147,10 @@ static int fips_test_sha1_ecdsa()
     {
         BIO_printf(out, "  ECDSA SHA-1 signature generation failed as expected.\n");
         ERR_print_errors(out);
+        fips_update_testrails(TESTRAILS_TC_SHA1_ECDSA_SIGN, TEST_PASSED, "ECDSA SHA-1 sig gen prevented");
     } else {
         BIO_printf(out, "  ECDSA SHA-1 signing did not fail, test case failed!!!!\n");
+        fips_update_testrails(TESTRAILS_TC_SHA1_ECDSA_SIGN, TEST_FAILED, "ECDSA SHA-1 sig gen not prevented");
         goto err;
     }
     EVP_MD_CTX_cleanup(&mctx);
@@ -1166,9 +1185,11 @@ static int fips_test_sha1_ecdsa()
     {
         BIO_printf(out, "  ECDSA verify failed, test case failed!!!\n");
         ERR_print_errors(out);
+        fips_update_testrails(TESTRAILS_TC_SHA1_ECDSA_VER, TEST_FAILED, "ECDSA SHA-1 verify not allowed");
         goto err;
     } else {
         BIO_printf(out, "  ECDSA verify succeeded, test case passed.\n");
+        fips_update_testrails(TESTRAILS_TC_SHA1_ECDSA_VER, TEST_PASSED, "ECDSA SHA-1 verify allowed");
     }
     EVP_MD_CTX_cleanup(&mctx);
 
