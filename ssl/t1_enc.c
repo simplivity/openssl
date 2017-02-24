@@ -386,6 +386,7 @@ int tls1_change_cipher_state(SSL *s, int which)
         mac_ctx = ssl_replace_hash(&s->read_hash, NULL);
         if (mac_ctx == NULL)
             goto err;
+        EVP_MD_CTX_set_flags(mac_ctx, EVP_MD_CTX_FLAG_NON_FIPS_ALLOW);
 #ifndef OPENSSL_NO_COMP
         if (s->expand != NULL) {
             COMP_CTX_free(s->expand);
@@ -431,6 +432,7 @@ int tls1_change_cipher_state(SSL *s, int which)
             mac_ctx = ssl_replace_hash(&s->write_hash, NULL);
             if (mac_ctx == NULL)
                 goto err;
+            EVP_MD_CTX_set_flags(mac_ctx, EVP_MD_CTX_FLAG_NON_FIPS_ALLOW);
         }
 #ifndef OPENSSL_NO_COMP
         if (s->compress != NULL) {

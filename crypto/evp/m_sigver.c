@@ -130,6 +130,25 @@ int EVP_DigestSignFinal(EVP_MD_CTX *ctx, unsigned char *sigret,
 {
     int sctx, r = 0;
     EVP_PKEY_CTX *pctx = ctx->pctx;
+
+#ifdef OPENSSL_FIPS
+    if (FIPS_mode() && !(ctx->flags & EVP_MD_CTX_FLAG_NON_FIPS_ALLOW))
+    {
+        /*
+         * SP800-131a no longer allows SHA-1 to be used for generating
+         * signatures.  We also add the MD5 check here too, which hasn't
+         * been allowed for quite some time.
+         */
+        switch (EVP_MD_CTX_type(ctx)) {
+        case NID_md5:
+        case NID_sha1:
+            EVPerr(EVP_F_EVP_DIGESTSIGNFINAL, EVP_R_INVALID_FIPS_MODE);
+            return 0;
+            break;
+        }
+    }
+#endif
+
     if (pctx->pmeth->flags & EVP_PKEY_FLAG_SIGCTX_CUSTOM) {
         EVP_PKEY_CTX *dctx;
         if (!sigret)
