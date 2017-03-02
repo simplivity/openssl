@@ -34,7 +34,7 @@ if (currentOs.linux) {
             outputs.dir file("$buildDir/${mode}")
 
             environment BUILD_DIR: buildDir
-            executable 'util/buildFOM.sh' 
+            executable 'util/buildFOM.sh'
             args mode
         }
 
@@ -52,9 +52,11 @@ if (currentOs.linux) {
                 into('include') {
                     from "$buildDir/${mode}/openssl-install/usr/include"
                     from "$buildDir/${mode}/fips-install/include"
+                    fileMode 0644
                 }
                 into('bin') {
                     from "$buildDir/${mode}/openssl-install/usr/bin"
+                    fileMode 0755
                 }
                 into('lib') {
                     from("$buildDir/${mode}/openssl-install/usr/lib/x86_64-linux-gnu") {
@@ -69,6 +71,7 @@ if (currentOs.linux) {
                             include 'fipscanister.*'
                         }
                     }
+                    fileMode 0755
                 }
             }
         }
@@ -89,6 +92,7 @@ if (currentOs.linux) {
                 from("$buildDir/${mode}/openssl-install/usr/lib/x86_64-linux-gnu") {
                     include 'engines/*.so'
                 }
+                fileMode 0755
             }
         }
 
@@ -105,11 +109,13 @@ if (currentOs.linux) {
 
             into('bin') {
                 from "$buildDir/${mode}/fips-install/bin"
+                fileMode 0755
             }
             into('src') {
                 from("$buildDir/${mode}/fips-install/lib") {
                     include 'fips_premain.*'
                 }
+                fileMode 0644
             }
         }
     }
@@ -123,7 +129,7 @@ if (currentOs.linux) {
 
                 workingDir projectDir
                 environment BUILD_DIR: buildDir
-                executable 'util/buildFOM.bat' 
+                executable 'util/buildFOM.bat'
                 args type, mode
             }
 
