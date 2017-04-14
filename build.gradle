@@ -63,14 +63,16 @@ def publishDebianToArtifactoryRepo(File debFile, String repo) {
     }
 }
 
+// Lifecycle task is a no-op on Windows, needs to exist for Matrix builds.
+def publishDeb = tasks.create(name: 'publishDeb', group: 'Build') {
+    description = 'Publish the Debian Archives to Artifactory'
+    enabled = currentOs.linux
+}
+
 if (currentOs.linux) {
     apply plugin: "nebula.ospackage-base"
 
     ext.buildPlatform = 'linux_x64'
-
-    def publishDeb = tasks.create(name: 'publishDeb', group: 'Build') {
-        description = 'Publish the Debian Archives to Artifactory'
-    }
 
     // Linux builds generate both static and shared libraries in one execution
     [ 'Debug', 'Release' ].each { mode ->
