@@ -5,6 +5,7 @@ apply plugin: 'ivy-publish'
 
 buildscript {
     ext.svtFunctionsVersion = '6.0.+'
+    ext.osPackageVersion = '4.4.0'
 
     repositories {
         mavenLocal()
@@ -17,6 +18,7 @@ buildscript {
 
     dependencies {
         classpath "com.simplivity.gradle.plugins:gradle-svtfunctions-plugin:$svtFunctionsVersion"
+        classpath "com.netflix.nebula:gradle-ospackage-plugin:$osPackageVersion"
     }
 }
 
@@ -24,8 +26,51 @@ group = "openssl"
 
 apply plugin: 'com.simplivity.svt-functions'
 
+import groovyx.net.http.ContentType
+import java.security.MessageDigest
+import org.jfrog.artifactory.client.*
+import org.jfrog.artifactory.client.impl.*
+import org.jfrog.artifactory.client.model.impl.FileImpl
+
+def computeDigests(File debFile) {
+    def md5 = MessageDigest.getInstance('MD5')
+    def sha1 = MessageDigest.getInstance('SHA-1')
+    def sha256 = MessageDigest.getInstance('SHA-256')
+
+    debFile.eachByte(4096) { bytes, size ->
+        md5.update(bytes, 0, size)
+        sha1.update(bytes, 0, size)
+        sha256.update(bytes, 0, size)
+    }
+
+    md5 = md5.digest().collect { String.format('%02x', it) }.join()
+    sha1 = sha1.digest().collect { String.format('%02x', it) }.join()
+    sha256 = sha256.digest().collect { String.format('%02x', it) }.join()
+
+    return [ md5, sha1, sha256 ]
+}
+
+def publishDebianToArtifactoryRepo(File debFile, String repo) {
+    def (md5, sha1, sha256) = computeDigests(debFile)
+    def headers = [ 'X-Checksum-Md5': md5, 'X-Checksum-Sha1': sha1, 'X-Checksum-Sha256': sha256 ]
+    def uploadPath = "/${repo}/pool/${debFile.name};deb.distribution=svt-trusty;deb.component=omnistack;deb.architecture=amd64"
+
+    Artifactory artifactory = ArtifactoryClient.create(artifactoryContextUrl, artifactory_user, artifactory_password)
+
+    debFile.withInputStream { content ->
+        def uploaded = artifactory.put(uploadPath, [:], ContentType.JSON, FileImpl, ContentType.BINARY, content, headers, debFile.length())
+        println uploaded.downloadUri
+    }
+}
+
 if (currentOs.linux) {
+    apply plugin: "nebula.ospackage-base"
+
     ext.buildPlatform = 'linux_x64'
+
+    def publishDeb = tasks.create(name: 'publishDeb', group: 'Build') {
+        description = 'Publish the Debian Archives to Artifactory'
+    }
 
     // Linux builds generate both static and shared libraries in one execution
     [ 'Debug', 'Release' ].each { mode ->
@@ -73,6 +118,46 @@ if (currentOs.linux) {
                     }
                     fileMode 0755
                 }
+            }
+        }
+
+        def buildDeb = tasks.create(name: "buildDeb${mode}", type: Deb, group: 'Build') {
+            description = "Assembles a Debian archive containing the OpenSSL Linux ${mode} library."
+            dependsOn "makeLinux${mode}"
+            project.assemble.dependsOn it
+
+            packageName = (mode == 'Debug') ? 'svt-openssl-fips-dbg' : 'svt-openssl-fips'
+
+            description 'SVT OpenSSL FIPS Debian package ($mode)'
+            distribution 'svt-trusty'
+            arch 'amd64'
+            priority 'required'
+
+            includeEmptyDirs = false
+            user 'root'
+
+            def installBaseDir = '/usr/share/svt-openssl-fips'
+            into("$installBaseDir/include") {
+                from "$buildDir/${mode}/openssl-install/usr/include"
+                from "$buildDir/${mode}/fips-install/include"
+                fileMode 0644
+            }
+            into("$installBaseDir/bin") {
+                from "$buildDir/${mode}/openssl-install/usr/bin"
+                fileMode 0755
+            }
+            into("$installBaseDir/lib") {
+                from "$buildDir/${mode}/openssl-install/usr/lib"
+            }
+        }
+
+        tasks.create(name: "publishDeb${mode}", group: 'Build') {
+            description = "Publishes the Debian archive for OpenSSL Linux ${mode} library to Artifactory"
+            dependsOn buildDeb
+            publishDeb.dependsOn it
+
+            doLast {
+                publishDebianToArtifactoryRepo(buildDeb.archivePath, debianRepo)
             }
         }
 
