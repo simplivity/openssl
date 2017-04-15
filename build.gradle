@@ -27,41 +27,18 @@ group = "openssl"
 apply plugin: 'com.simplivity.svt-functions'
 
 import groovyx.net.http.ContentType
-import java.security.MessageDigest
 import org.jfrog.artifactory.client.*
 import org.jfrog.artifactory.client.impl.*
 import org.jfrog.artifactory.client.model.impl.FileImpl
 
-def computeDigests(File debFile) {
-    def md5 = MessageDigest.getInstance('MD5')
-    def sha1 = MessageDigest.getInstance('SHA-1')
-    def sha256 = MessageDigest.getInstance('SHA-256')
-
-    debFile.eachByte(4096) { bytes, size ->
-        md5.update(bytes, 0, size)
-        sha1.update(bytes, 0, size)
-        sha256.update(bytes, 0, size)
-    }
-
-    md5 = md5.digest().collect { String.format('%02x', it) }.join()
-    sha1 = sha1.digest().collect { String.format('%02x', it) }.join()
-    sha256 = sha256.digest().collect { String.format('%02x', it) }.join()
-
-    return [ md5, sha1, sha256 ]
-}
-
-def publishDebianToArtifactoryRepo(File debFile, String repo) {
-    def (md5, sha1, sha256) = computeDigests(debFile)
-    def headers = [ 'X-Checksum-Md5': md5, 'X-Checksum-Sha1': sha1, 'X-Checksum-Sha256': sha256 ]
-    def hashDir = debFile.name.substring(0,1)
-    def uploadPath = "/${repo}/pool/omnistack/${hashDir}/${debFile.name};deb.distribution=svt-trusty;deb.component=omnistack;deb.architecture=amd64"
-
+def publishToArtifactoryDebianRepo(File debFile, String repo) {
     Artifactory artifactory = ArtifactoryClient.create(artifactoryContextUrl, artifactory_user, artifactory_password)
 
-    debFile.withInputStream { content ->
-        def uploaded = artifactory.put(uploadPath, [:], ContentType.JSON, FileImpl, ContentType.BINARY, content, headers, debFile.length())
-        println uploaded.downloadUri
-    }
+    def hashDir = debFile.name.substring(0,1)
+    def uploadPath = "pool/omnistack/${hashDir}/${debFile.name};deb.distribution=svt-trusty;deb.component=omnistack;deb.architecture=amd64"
+
+    def uploaded = artifactory.repository(repo).upload(uploadPath, debFile).bySha1Checksum().doUpload()
+    println uploaded.downloadUri
 }
 
 // Lifecycle task is a no-op on Windows, needs to exist for Matrix builds.
@@ -136,6 +113,8 @@ if (currentOs.linux) {
             arch 'amd64'
             priority 'required'
 
+            ext.changesPath = file(archivePath.absolutePath.replaceAll('\\.deb$', '.changes'))
+
             includeEmptyDirs = false
             user 'root'
 
@@ -160,7 +139,8 @@ if (currentOs.linux) {
             publishDeb.dependsOn it
 
             doLast {
-                publishDebianToArtifactoryRepo(buildDeb.archivePath, debianRepo)
+                publishToArtifactoryDebianRepo(buildDeb.archivePath, debianRepo)
+                publishToArtifactoryDebianRepo(buildDeb.changesPath, debianRepo)
             }
         }
 
