@@ -35,7 +35,7 @@ def publishToArtifactoryDebianRepo(File debFile, String repo) {
     Artifactory artifactory = ArtifactoryClient.create(artifactoryContextUrl, artifactory_user, artifactory_password)
 
     def hashDir = debFile.name.substring(0,1)
-    def uploadPath = "pool/omnistack/${hashDir}/${debFile.name};deb.distribution=svt-trusty;deb.component=omnistack;deb.architecture=amd64"
+    def uploadPath = "pool/${hashDir}/svt-openssl-fips/${debFile.name};deb.distribution=svt-trusty;deb.component=omnistack;deb.architecture=amd64"
 
     def uploaded = artifactory.repository(repo).upload(uploadPath, debFile).bySha1Checksum().doUpload()
     println uploaded.downloadUri
