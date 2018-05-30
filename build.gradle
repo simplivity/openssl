@@ -189,16 +189,46 @@ if (currentOs.linux) {
     }
 } else {
     ext.buildPlatform = 'windows_x64'
+
+    // Build openssl with VS 2010, set to 'msvc-14.1' to build with VS 2017
+    ext.toolset       = 'msvc-10.0'
     [ 'Debug', 'Release' ].each { mode ->
         [ 'Shared', 'Static' ].each { type ->
             tasks.create(name: "makeWindows${type}${mode}", type: Exec, group: 'Build') {
                 description = "Generates the Windows ${type} ${mode} configuration"
                 outputs.dir file("$buildDir/${type}/${mode}")
 
+                def vcvarsall
+                switch (toolset) {
+                    case 'msvc-10.0':
+                        vcvarsall = 'C:\\Program Files (x86)\\Microsoft Visual Studio 10.0\\VC\\vcvarsall.bat'
+                        break;
+                    case 'msvc-14.1':
+                        // VS 2017 provides a executable vswhere.exe which will provide location info about
+                        // where VS 2017 is installed; we will use this to try to get the path to vcvarsall.bat
+                        def vswhereCmd = 'c:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'
+                        def vswhereOut = vswhereCmd.execute().text
+                        def vswhereProperty = "installationPath"
+                        def installationPath = vswhereOut.readLines().findResult { line ->
+                            (line =~ /^${vswhereProperty}: (.+)$/).with { m ->
+                                if( m.matches() ) {
+                                    m[ 0 ][ 1 ] as String
+                                }
+                            }
+                        }
+                        if (! installationPath) {
+                            throw new GradleException("ERROR: vcvarsall.bat script not found.\n" +
+                                                      "vswhere.exe output:\n${vswhereOut}")
+                        }
+                        vcvarsall = "${installationPath}\\VC\\Auxiliary\\Build\\vcvarsall.bat"
+                        break
+                    default:
+                        throw new GradleException('toolset is not valid')
+                }
                 workingDir projectDir
                 environment BUILD_DIR: buildDir
                 executable 'util/buildFOM.bat'
-                args type, mode
+                args type, mode, vcvarsall
             }
 
             tasks.create(name: "assemble${type}${mode}Nar", type: Zip, group: "Build") {

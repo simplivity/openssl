@@ -1,7 +1,19 @@
 setlocal
 
+set COUNT=0
+for %%x in (%*) do set /A COUNT+=1
+
+if %COUNT% LSS 3 (
+    echo "ERROR: Expected 3 arguments, received %COUNT%" && exit /b 1
+)
+
 set type=%1
 set mode=%2
+set vcvarsall=%~3
+
+if NOT EXIST "%vcvarsall%" (
+    echo "ERROR: File not found: %vcvarsall%" && exit /b 1
+)
 
 if defined BUILD_DIR (
     set FOMDIR=%BUILD_DIR%\%type%\%mode%\fips-install
@@ -18,9 +30,9 @@ if "%type%" == "Static" (
 )
 if "%mode%" == "Debug" set DEBUGOPT=debug-
 
-set PATH=%PERL_DIR%;%PATH%;E:\Git\bin
+set PATH=%PERL_DIR%;%PATH%;%ProgramFiles%\Git\usr\bin
 
-call "C:\Program Files (x86)\Microsoft Visual Studio 10.0\VC\vcvarsall.bat" amd64
+call "%vcvarsall%" amd64
 call nasm -v
 call perl -v
 
