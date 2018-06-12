@@ -32,7 +32,11 @@ import org.jfrog.artifactory.client.impl.*
 import org.jfrog.artifactory.client.model.impl.FileImpl
 
 def publishToArtifactoryDebianRepo(File debFile, String repo) {
-    Artifactory artifactory = ArtifactoryClient.create(artifactoryContextUrl, artifactory_user, artifactory_password)
+    Artifactory artifactory = ArtifactoryClientBuilder.create()
+        .setUrl(artifactoryContextUrl)
+        .setUsername(artifactory_user)
+        .setPassword(artifactory_password)
+        .build()
 
     def hashDir = debFile.name.substring(0,1)
     def uploadPath = "pool/${hashDir}/svt-openssl-fips/${debFile.name};deb.distribution=svt-trusty;deb.component=omnistack;deb.architecture=amd64"
@@ -76,9 +80,6 @@ if (currentOs.linux) {
 
                 into('include') {
                     from "$buildDir/${mode}/openssl-install/usr/include"
-                    from ("$buildDir/${mode}/fips-install/include") {
-                        exclude '**/ossl_typ.h'
-                    }
                     fileMode 0644
                 }
                 into('bin') {
@@ -245,7 +246,6 @@ if (currentOs.linux) {
 
                 into('include') {
                     from "$buildDir/${type}/${mode}/openssl-install/include"
-                    from "$buildDir/${type}/${mode}/fips-install/include"
                 }
                 into('bin') {
                     from "$buildDir/${type}/${mode}/openssl-install/bin"
