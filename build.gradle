@@ -76,7 +76,9 @@ if (currentOs.linux) {
 
                 into('include') {
                     from "$buildDir/${mode}/openssl-install/usr/include"
-                    from "$buildDir/${mode}/fips-install/include"
+                    from ("$buildDir/${mode}/fips-install/include") {
+                        exclude '**/ossl_typ.h'
+                    }
                     fileMode 0644
                 }
                 into('bin') {
