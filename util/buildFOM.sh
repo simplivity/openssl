@@ -35,4 +35,4 @@ make depend
 make clean
 make
 make test
-make INSTALL_PREFIX=$SSLDIR install_sw
+make INSTALL_PREFIX=$SSLDIR install_sw install_docs
