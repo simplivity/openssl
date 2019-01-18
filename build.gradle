@@ -1,0 +1,560 @@
+description = 'Gradle wrapper for OpenSSL build'
+
+apply plugin: 'base'
+apply plugin: 'ivy-publish'
+
+buildscript {
+    ext.svtFunctionsVersion = '9.0.+'
+    ext.osPackageVersion = '4.9.+'
+
+    repositories {
+        mavenLocal()
+        maven {
+            name "ArtifactoryRepo"
+            // see gradle.properties
+            url artifactoryUrl
+        }
+    }
+
+    dependencies {
+        classpath "com.simplivity.gradle.plugins:gradle-svtfunctions-plugin:$svtFunctionsVersion"
+        classpath "com.netflix.nebula:gradle-ospackage-plugin:$osPackageVersion"
+    }
+}
+
+group = "openssl"
+
+apply plugin: 'com.simplivity.svt-functions'
+
+import groovyx.net.http.ContentType
+import org.jfrog.artifactory.client.*
+import org.jfrog.artifactory.client.impl.*
+import org.jfrog.artifactory.client.model.impl.FileImpl
+
+/**
+ * Helper function modeled after the publish.sh functionality provided for the
+ * Debian Artifactory solution. Module can be a grouping function name or just
+ * debFile.name in the simplest possible case.
+ *
+ * @param debFile The <code>.deb</code> file to publish
+ * @param module  The module name to use for the pool path computation
+ * @param repo    The Artifactory repo key to publish into
+ * @param dist    The Debian Distribution for this Debian artifact
+ * @param comp    The Debian Component for this Debian artifact
+ * @param arch    The Debian Architecture for this Debian artifact
+ */
+def publishToArtifactoryDebianRepo(File debFile, String module, String repo, String dist, String comp, String arch) {
+    Artifactory artifactory = ArtifactoryClientBuilder.create()
+        .setUrl(artifactoryContextUrl)
+        .setUsername(artifactory_user)
+        .setPassword(artifactory_password)
+        .build()
+
+    // Compute the hashDir for the top level pool path
+    def hashDir = module.startsWith('lib') ? module.substring(0,4) : module.substring(0,1)
+    def uploadPath = "pool/svt/${hashDir}/${module}/${debFile.name};deb.distribution=${dist};deb.component=${comp};deb.architecture=${arch}"
+
+    def uploaded = artifactory.repository(repo).upload(uploadPath, debFile).bySha1Checksum().doUpload()
+    println "Uploaded ${debFile} to ${uploaded.downloadUri}"
+}
+
+// Flags for Debian relationship declarations
+import org.redline_rpm.header.Flags
+
+if (currentOs.linux) {
+    apply plugin: "nebula.ospackage-base"
+
+    ext.buildPlatform = 'linux_x64'
+    ext.opensslVersion = "1.0.2p-svt${project.version.buildNum}"
+
+    // Linux builds generate both static and shared libraries in one execution
+    [ 'Debug', 'Release' ].each { mode ->
+        tasks.create(name: "makeLinux${mode}", type: Exec, group: 'Build') {
+            description = "Generates the Linux ${mode} configuration"
+            outputs.dir file("$buildDir/${mode}")
+
+            environment BUILD_DIR: buildDir
+            executable 'util/svtbuild.sh'
+            args mode
+        }
+
+        [ 'Shared', 'Static' ].each { type ->
+            tasks.create(name: "assemble${type}${mode}Nar", type: Zip, group: 'Build') {
+                description = "Assembles a zip archive containing the OpenSSL Linux ${type} ${mode} library."
+                dependsOn "makeLinux${mode}"
+                project.assemble.dependsOn it
+
+                baseName = 'openssl'
+                classifier = "linux_x64-${type.toLowerCase()}-${mode.toLowerCase()}"
+                extension = 'nar'
+                destinationDir = file("$buildDir/distributions")
+
+                into('include') {
+                    from "$buildDir/${mode}/openssl-install/usr/include"
+                    fileMode 0644
+                }
+                into('bin') {
+                    from "$buildDir/${mode}/openssl-install/usr/bin"
+                    fileMode 0755
+                }
+                into('lib') {
+                    from("$buildDir/${mode}/openssl-install/usr/lib/x86_64-linux-gnu") {
+                        if (type == 'Static') {
+                            include 'lib*.a'
+                        } else {
+                            include 'lib*.so', 'lib*.so.*'
+                        }
+                    }
+                    if (type == 'Static') {
+                        from("$buildDir/${mode}/fips-install/lib") {
+                            include 'fipscanister.*'
+                        }
+                    }
+                    fileMode 0755
+                }
+            }
+        }
+
+        // Debian build tasks collection
+        def debBuildTasks = []
+
+        // The original all-in-one svt-openssl-fips package, we will remove this soon-ish
+        debBuildTasks << tasks.create(name: "buildDeb${mode}", type: Deb, group: 'Build') {
+            description = "Assembles a Debian archive containing the OpenSSL Linux ${mode} library."
+            dependsOn "makeLinux${mode}"
+            project.assemble.dependsOn it
+
+            packageName = (mode == 'Debug') ? 'svt-openssl-fips-dbg' : 'svt-openssl-fips'
+            packageDescription "SVT OpenSSL FIPS Debian package ($mode)"
+            packageGroup 'libs'
+            version opensslVersion
+
+            distribution project.debianDist
+            arch 'amd64'
+            priority 'required'
+
+            includeEmptyDirs = false
+            user 'root'
+            dirMode 0755
+
+            def installBaseDir = '/usr/share/svt-openssl-fips'
+            into("$installBaseDir/include") {
+                from "$buildDir/${mode}/openssl-install/usr/include"
+                from "$buildDir/${mode}/fips-install/include"
+                fileMode 0644
+            }
+            into("$installBaseDir/bin") {
+                from "$buildDir/${mode}/openssl-install/usr/bin"
+                fileMode 0755
+            }
+            into("$installBaseDir/lib") {
+                from "$buildDir/${mode}/openssl-install/usr/lib"
+            }
+        }
+
+        // The runtime libraries for openssl, packaged just as openssl Debianized distro
+        debBuildTasks << tasks.create(name: "buildLibSllDeb${mode}", type: Deb, group: 'Build') {
+            description = "Assembles a Debian archive containing the libssl and libcrypto Linux ${mode} library."
+            dependsOn "makeLinux${mode}"
+            project.assemble.dependsOn it
+
+            packageName = (mode == 'Debug') ? 'libssl1.0.0-debug' : 'libssl1.0.0'
+            packageDescription "SVT OpenSSL FIPS Debian package of libssl and libcrypto ($mode)"
+            packageGroup 'libs'
+            version opensslVersion
+
+            distribution project.debianDist
+            arch 'amd64'
+            multiArch SAME
+            priority 'important'
+
+            preDepends('multiarch-support')
+            requires('libc6', '2.14', Flags.GREATER|Flags.EQUAL)
+            requires('debconf', '0.5', Flags.GREATER|Flags.EQUAL).or('debconf-2.0')
+
+            postInstallFile file('debian/libssl1.1.0.postinst')
+
+            includeEmptyDirs = false
+            user 'root'
+            dirMode 0755
+
+            // Modeled after the libssl1.0.0 package from official Ubuntu distro
+            into('lib/x86_64-linux-gnu') {
+                from("$buildDir/${mode}/openssl-install/usr/lib/x86_64-linux-gnu") {
+                    include 'lib*.so.1.0.0'
+                }
+                fileMode 0755
+            }
+            into('usr/lib/x86_64-linux-gnu/openssl-1.0.0') {
+                from("$buildDir/${mode}/openssl-install/usr/lib/x86_64-linux-gnu") {
+                    include 'engines/*.so'
+                }
+                fileMode 0755
+            }
+        }
+
+        // The development libraries for openssl, packaged just as openssl Debianized distro
+        debBuildTasks << tasks.create(name: "buildLibSllDevDeb${mode}", type: Deb, group: 'Build') {
+            description = "Assembles a Debian archive containing the libssl and libcrypto development Linux ${mode} library."
+            dependsOn "makeLinux${mode}"
+            project.assemble.dependsOn it
+
+            packageName = (mode == 'Debug') ? 'libssl-dev-debug' : 'libssl-dev'
+            packageDescription "SVT OpenSSL FIPS Debian package of libssl and libcrypto ($mode)"
+            packageGroup 'libdevel'
+            version opensslVersion
+
+            distribution project.debianDist
+            arch 'amd64'
+            multiArch SAME
+            priority 'optional'
+
+            if (mode == 'Release') {
+                requires('libssl1.0.0', opensslVersion, Flags.EQUAL)
+            } else {
+                requires('libssl1.0.0-debug', opensslVersion, Flags.EQUAL)
+            }
+            requires('zlib1g-dev')
+            recommends('libssl-doc')
+
+            includeEmptyDirs = false
+            user 'root'
+            dirMode 0755
+
+            // Modeled after the libssl-dev package from official Ubuntu distro
+            into('usr/include') {
+                from("$buildDir/${mode}/openssl-install/usr/include") {
+                    exclude 'openssl/opensslconf.h'
+                }
+                into('x86_64-linux-gnu') {
+                    from("$buildDir/${mode}/openssl-install/usr/include") {
+                        include 'openssl/opensslconf.h'
+                    }
+                }
+                fileMode 0644
+            }
+            into('usr/lib/x86_64-linux-gnu') {
+                from("$buildDir/${mode}/openssl-install/usr/lib/x86_64-linux-gnu") {
+                    include '*.a'
+                    include 'pkgconfig/*.pc'
+                }
+                fileMode 0644
+            }
+            link('usr/lib/x86_64-linux-gnu/libcrypto.so', '/lib/x86_64-linux-gnu/libcrypto.so.1.0.0')
+            link('usr/lib/x86_64-linux-gnu/libssl.so', '/lib/x86_64-linux-gnu/libssl.so.1.0.0')
+        }
+
+        debBuildTasks << tasks.create(name: "buildOpensslDeb${mode}", type: Deb, group: 'Build') {
+            description = "Assembles a Debian archive containing the Secure Sockets Layer toolkit - cryptographic utility."
+            dependsOn "makeLinux${mode}"
+            project.assemble.dependsOn it
+
+            packageName = (mode == 'Debug') ? 'openssl-debug' : 'openssl'
+            packageDescription "SVT OpenSSL Secure Sockets Layer toolkit - cryptographic utility ($mode)"
+            packageGroup 'utils'
+            version opensslVersion
+
+            distribution project.debianDist
+            arch 'amd64'
+            priority 'optional'
+
+            if (mode == 'Release') {
+                requires('libssl1.0.0', opensslVersion, Flags.GREATER|Flags.EQUAL)
+            } else {
+                requires('libssl1.0.0-debug', opensslVersion, Flags.GREATER|Flags.EQUAL)
+            }
+            requires('libc6', '2.14', Flags.GREATER|Flags.EQUAL)
+            suggests('ca-certificates')
+
+            postInstallFile file('debian/openssl.postinst')
+
+            includeEmptyDirs = false
+            user 'root'
+            dirMode 0755
+
+            // Modeled after the openssl package from official Ubuntu distro
+            into('usr/lib/ssl/misc') {
+                from "$buildDir/${mode}/openssl-install/usr/lib/ssl/misc"
+                fileMode 0755
+            }
+            into('usr/bin') {
+                from "$buildDir/${mode}/openssl-install/usr/bin"
+                fileMode 0755
+            }
+            into('usr/share/man') {
+                from("$buildDir/${mode}/openssl-install/usr/lib/ssl/man") {
+                    include 'man1/**'
+                    include 'man5/**'
+                    include 'man7/**'
+                }
+                fileMode 0644
+            }
+            into('etc/ssl') {
+                from("$buildDir/${mode}/openssl-install/usr/lib/ssl") {
+                    include 'openssl.cnf'
+                }
+                fileMode 0644
+            }
+            directory('etc/ssl/certs')
+            directory('etc/ssl/private')
+
+            link('usr/lib/ssl/certs', '/etc/ssl/certs')
+            link('usr/lib/ssl/private', '/etc/ssl/private')
+            link('usr/lib/ssl/openssl.cnf', '/etc/ssl/openssl.cnf')
+        }
+
+        // The documentation for the libraries, packaged just as openssl Debianized distro
+        if (mode == 'Release') {
+            debBuildTasks << tasks.create(name: "buildLibSllDocDeb", type: Deb, group: 'Build') {
+                description = "Assembles a Debian archive containing the libssl and libcrypto documentation man pages."
+                dependsOn "makeLinux${mode}"
+                project.assemble.dependsOn it
+
+                packageName = 'libssl-doc'
+                packageDescription "Secure Sockets Layer toolkit - development documentation"
+                packageGroup 'doc'
+                version opensslVersion
+
+                distribution project.debianDist
+                arch 'all'
+                priority 'optional'
+
+                replaces('libssl-dev', '1.0.0', Flags.LESS)
+                breaks('libssl-dev', '1.0.0', Flags.LESS)
+
+                includeEmptyDirs = false
+                user 'root'
+                dirMode 0755
+
+                into('usr/share/man') {
+                    from("$buildDir/${mode}/openssl-install/usr/lib/ssl/man") {
+                        include 'man3/**'
+                    }
+                    fileMode 0644
+                }
+            }
+        }
+
+        tasks.create(name: "publishDeb${mode}", group: 'Build') {
+            description = "Publishes the Debian archive for OpenSSL Linux ${mode} library to Artifactory"
+            dependsOn debBuildTasks
+            artifactoryPublish.dependsOn it
+
+            doLast {
+                // publish the "openssl" modules we create in the same module directory as the official distro does
+                for (debTask in debBuildTasks) {
+                    publishToArtifactoryDebianRepo(debTask.archivePath, 'openssl', debianRepo, debianDist, debianComp, debTask.archStr)
+                }
+            }
+        }
+
+        // OpenSSL Engines are created separately in the lib/engines directory and
+        // only for the shared library mode. Package them separately.
+        tasks.create(name: "assemble${mode}Engines", type: Zip, group: 'Build') {
+            description = "Assembles a zip archive of the FIPS crypto engines for ${mode} builds."
+            dependsOn "makeLinux${mode}"
+            project.assemble.dependsOn it
+
+            baseName = "openssl"
+            classifier = "${buildPlatform}-engines-${mode.toLowerCase()}"
+            extension = 'zip'
+            destinationDir = file("$buildDir/distributions")
+
+            into('lib') {
+                from("$buildDir/${mode}/openssl-install/usr/lib/x86_64-linux-gnu") {
+                    include 'engines/*.so'
+                }
+                fileMode 0755
+            }
+        }
+
+        // We only need the Static flavor of these tools to properly process the FIPS builds.
+        tasks.create(name: "assemble${mode}FipsTools", type: Zip, group: 'Build') {
+            description = "Assembles a zip archive of the FIPS tools and sources for ${mode} builds."
+            dependsOn "makeLinux${mode}"
+            project.assemble.dependsOn it
+
+            baseName = "openssl"
+            classifier = "${buildPlatform}-fips-tools-${mode.toLowerCase()}"
+            extension = 'zip'
+            destinationDir = file("$buildDir/distributions")
+
+            into('bin') {
+                from "$buildDir/${mode}/fips-install/bin"
+                fileMode 0755
+            }
+            into('src') {
+                from("$buildDir/${mode}/fips-install/lib") {
+                    include 'fips_premain.*'
+                }
+                fileMode 0644
+            }
+        }
+    }
+} else {
+    ext.buildPlatform = 'windows_x64'
+
+    // Build openssl with VS 2010, set to 'msvc-14.1' to build with VS 2017
+    ext.toolset       = 'msvc-10.0'
+    [ 'Debug', 'Release' ].each { mode ->
+        [ 'Shared', 'Static' ].each { type ->
+            tasks.create(name: "makeWindows${type}${mode}", type: Exec, group: 'Build') {
+                description = "Generates the Windows ${type} ${mode} configuration"
+                outputs.dir file("$buildDir/${type}/${mode}")
+
+                def vcvarsall
+                switch (toolset) {
+                    case 'msvc-10.0':
+                        vcvarsall = 'C:\\Program Files (x86)\\Microsoft Visual Studio 10.0\\VC\\vcvarsall.bat'
+                        break;
+                    case 'msvc-14.1':
+                        // VS 2017 provides a executable vswhere.exe which will provide location info about
+                        // where VS 2017 is installed; we will use this to try to get the path to vcvarsall.bat
+                        def vswhereCmd = 'c:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'
+                        def vswhereOut = vswhereCmd.execute().text
+                        def vswhereProperty = "installationPath"
+                        def installationPath = vswhereOut.readLines().findResult { line ->
+                            (line =~ /^${vswhereProperty}: (.+)$/).with { m ->
+                                if( m.matches() ) {
+                                    m[ 0 ][ 1 ] as String
+                                }
+                            }
+                        }
+                        if (! installationPath) {
+                            throw new GradleException("ERROR: vcvarsall.bat script not found.\n" +
+                                                      "vswhere.exe output:\n${vswhereOut}")
+                        }
+                        vcvarsall = "${installationPath}\\VC\\Auxiliary\\Build\\vcvarsall.bat"
+                        break
+                    default:
+                        throw new GradleException('toolset is not valid')
+                }
+                workingDir projectDir
+                environment BUILD_DIR: buildDir
+                executable 'util/svtbuild.bat'
+                args type, mode, vcvarsall
+            }
+
+            tasks.create(name: "assemble${type}${mode}Nar", type: Zip, group: "Build") {
+                description = "Assembles a zip archive containing the OpenSSL Windows ${type} ${mode} library."
+                dependsOn "makeWindows${type}${mode}"
+                project.assemble.dependsOn it
+
+                baseName = 'openssl'
+                classifier = "${buildPlatform}-${type.toLowerCase()}-${mode.toLowerCase()}"
+                extension = 'nar'
+                destinationDir = file("$buildDir/distributions")
+
+                into('include') {
+                    from "$buildDir/${type}/${mode}/openssl-install/include"
+                }
+                into('bin') {
+                    from "$buildDir/${type}/${mode}/openssl-install/bin"
+                    include '*.exe'
+                }
+                into('lib') {
+                    from("$buildDir/${type}/${mode}/openssl-install/lib") {
+                        include '*.lib'
+                    }
+                    if (type == 'Static') {
+                        from("$buildDir/${type}/${mode}/fips-install/lib") {
+                            include 'fipscanister.lib*'
+                        }
+                    } else {
+                        from("$buildDir/${type}/${mode}/openssl-install/bin") {
+                            include '*.dll'
+                        }
+                    }
+                }
+            }
+        }
+
+        // OpenSSL Engines are created separately in the lib/engines directory and
+        // only for the shared library mode. Package them separately.
+        tasks.create(name: "assemble${mode}Engines", type: Zip, group: 'Build') {
+            description = "Assembles a zip archive of the FIPS crypto engines for ${mode} builds."
+            dependsOn "makeWindowsShared${mode}"
+            project.assemble.dependsOn it
+
+            baseName = "openssl"
+            classifier = "${buildPlatform}-engines-${mode.toLowerCase()}"
+            extension = 'zip'
+            destinationDir = file("$buildDir/distributions")
+
+            into('lib') {
+                from("$buildDir/Shared/${mode}/openssl-install/lib") {
+                    include 'engines/*.dll'
+                }
+            }
+        }
+
+        // We only need the Static flavor of these tools to properly process the FIPS builds.
+        tasks.create(name: "assemble${mode}FipsTools", type: Zip, group: 'Build') {
+            description = "Assembles a zip archive of the FIPS tools and sources for ${mode} builds."
+            dependsOn "makeWindowsStatic${mode}"
+            project.assemble.dependsOn it
+
+            baseName = "openssl"
+            classifier = "${buildPlatform}-fips-tools-${mode.toLowerCase()}"
+            extension = 'zip'
+            destinationDir = file("$buildDir/distributions")
+
+            into('bin') {
+                from("$buildDir/Static/${mode}/fips-install/bin") {
+                    include '*.exe', '*.pl', 'msincore'
+                }
+            }
+            into('src') {
+                from("$buildDir/Static/${mode}/fips-install/lib") {
+                    include 'fips_premain.*'
+                }
+            }
+        }
+    }
+}
+
+publishing {
+    publications {
+        OpenSSLNar(IvyPublication) {
+            module 'openssl'
+            configurations {
+                "${buildPlatform}-static-debug" {}
+                "${buildPlatform}-static-release" {}
+                "${buildPlatform}-shared-debug" {}
+                "${buildPlatform}-shared-release" {}
+                "${buildPlatform}-fips-tools-debug" {}
+                "${buildPlatform}-fips-tools-release" {}
+                "${buildPlatform}-engines-debug" {}
+                "${buildPlatform}-engines-release" {}
+                "default" {}
+            }
+            artifact(assembleStaticDebugNar) {
+                conf "${buildPlatform}-static-debug"
+            }
+            artifact(assembleStaticReleaseNar) {
+                conf "${buildPlatform}-static-release"
+            }
+            artifact(assembleSharedDebugNar) {
+                conf "${buildPlatform}-shared-debug"
+            }
+            artifact(assembleSharedReleaseNar) {
+                conf "${buildPlatform}-shared-release"
+            }
+            artifact(assembleDebugFipsTools) {
+                conf "${buildPlatform}-fips-tools-debug"
+            }
+            artifact(assembleReleaseFipsTools) {
+                conf "${buildPlatform}-fips-tools-release"
+            }
+            artifact(assembleDebugEngines) {
+                conf "${buildPlatform}-engines-debug"
+            }
+            artifact(assembleReleaseEngines) {
+                conf "${buildPlatform}-engines-release"
+            }
+            descriptor.withXml {
+                asNode().info[0].appendNode('description', 'openssl library')
+            }
+        }
+    }
+}
