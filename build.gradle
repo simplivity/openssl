@@ -124,7 +124,7 @@ if (currentOs.linux) {
             dependsOn "makeLinux${mode}"
             project.assemble.dependsOn it
 
-            packageName = (mode == 'Debug') ? 'libssl1.1.0-debug' : 'libssl1.1.0'
+            packageName = (mode == 'Debug') ? 'libssl1.1-debug' : 'libssl1.1'
             packageDescription "SVT OpenSSL FIPS Debian package of libssl and libcrypto ($mode)"
             packageGroup 'libs'
             version opensslVersion
@@ -144,14 +144,14 @@ if (currentOs.linux) {
             user 'root'
             dirMode 0755
 
-            // Modeled after the libssl1.1.0 package from official Ubuntu distro
+            // Modeled after the libssl1.1 package from official Ubuntu distro
             into('lib/x86_64-linux-gnu') {
                 from("$buildDir/${mode}/openssl-install/usr/lib/x86_64-linux-gnu") {
-                    include 'lib*.so.1.1.0'
+                    include 'lib*.so.1.1'
                 }
                 fileMode 0755
             }
-            into('usr/lib/x86_64-linux-gnu/openssl-1.1.0') {
+            into('usr/lib/x86_64-linux-gnu/openssl-1.1') {
                 from("$buildDir/${mode}/openssl-install/usr/lib/x86_64-linux-gnu") {
                     include 'engines-*/*.so'
                 }
@@ -176,9 +176,9 @@ if (currentOs.linux) {
             priority 'optional'
 
             if (mode == 'Release') {
-                requires('libssl1.1.0', opensslVersion, Flags.EQUAL)
+                requires('libssl1.1', opensslVersion, Flags.EQUAL)
             } else {
-                requires('libssl1.1.0-debug', opensslVersion, Flags.EQUAL)
+                requires('libssl1.1-debug', opensslVersion, Flags.EQUAL)
             }
             requires('zlib1g-dev')
             recommends('libssl-doc')
@@ -206,8 +206,8 @@ if (currentOs.linux) {
                 }
                 fileMode 0644
             }
-            link('usr/lib/x86_64-linux-gnu/libcrypto.so', '/lib/x86_64-linux-gnu/libcrypto.so.1.1.0')
-            link('usr/lib/x86_64-linux-gnu/libssl.so', '/lib/x86_64-linux-gnu/libssl.so.1.1.0')
+            link('usr/lib/x86_64-linux-gnu/libcrypto.so', '/lib/x86_64-linux-gnu/libcrypto.so.1.1')
+            link('usr/lib/x86_64-linux-gnu/libssl.so', '/lib/x86_64-linux-gnu/libssl.so.1.1')
         }
 
         debBuildTasks << tasks.create(name: "buildOpensslDeb${mode}", type: Deb, group: 'Build') {
@@ -225,9 +225,9 @@ if (currentOs.linux) {
             priority 'optional'
 
             if (mode == 'Release') {
-                requires('libssl1.1.0', opensslVersion, Flags.GREATER|Flags.EQUAL)
+                requires('libssl1.1', opensslVersion, Flags.GREATER|Flags.EQUAL)
             } else {
-                requires('libssl1.1.0-debug', opensslVersion, Flags.GREATER|Flags.EQUAL)
+                requires('libssl1.1-debug', opensslVersion, Flags.GREATER|Flags.EQUAL)
             }
             requires('libc6', '2.14', Flags.GREATER|Flags.EQUAL)
             suggests('ca-certificates')
