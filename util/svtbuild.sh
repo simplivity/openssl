@@ -7,9 +7,9 @@
 # a single execution so we select just Debug/Release options.
 #
 
-echo "SVT Build..."
-echo ${1}
+echo "SVT Building ${1}"
 
+SOURCE_DIR=${PROJECT_DIR:-${PWD}}
 INSTALL_BASE=${BUILD_DIR:-${PWD}}
 FOMDIR=${INSTALL_BASE}/${1}/fips-install
 SSLDIR=${INSTALL_BASE}/${1}/openssl-install
@@ -31,9 +31,9 @@ fi
 #make install
 #cd ../..
 
-#./config fips shared --with-fipsdir=$FOMDIR no-idea no-mdc2 no-rc5 no-zlib enable-tlsext no-ssl2 enable-ec_nistp_64_gcc_128 --prefix=/usr --openssldir=/usr/lib/ssl --libdir=lib/${DEB_HOST_MULTIARCH} --enginesdir=/usr/lib/${DEB_HOST_MULTIARCH}/openssl-1.0.0/engines ${DEBUG}
+#${SOURCE_DIR}/config fips shared --with-fipsdir=$FOMDIR no-idea no-mdc2 no-rc5 no-zlib enable-tlsext no-ssl2 enable-ec_nistp_64_gcc_128 --prefix=/usr --openssldir=/usr/lib/ssl --libdir=lib/${DEB_HOST_MULTIARCH} --enginesdir=/usr/lib/${DEB_HOST_MULTIARCH}/openssl-1.0.0/engines ${DEBUG}
 
-HASHBANGPERL=/usr/bin/perl ./config shared \
+HASHBANGPERL=/usr/bin/perl ${SOURCE_DIR}/config shared \
                --prefix=/usr \
                --openssldir=/usr/lib/ssl \
                --libdir=lib/${DEB_HOST_MULTIARCH} \
@@ -43,4 +43,4 @@ make depend
 make clean
 make
 make test
-make INSTALL_PREFIX=$SSLDIR DESTDIR=${SSLDIR} install_sw install_docs
+make INSTALL_PREFIX=$SSLDIR DESTDIR=${SSLDIR} install

@@ -15,6 +15,12 @@ if NOT EXIST "%vcvarsall%" (
     echo "ERROR: File not found: %vcvarsall%" && exit /b 1
 )
 
+if defined PROJECT_DIR (
+	set SOURCE_DIR=%PROJECT_DIR%
+) else (
+	set SOURCE_DIR=%CD%
+)
+
 if defined BUILD_DIR (
     set FOMDIR=%BUILD_DIR%\%type%\%mode%\fips-install
     set SSLDIR=%BUILD_DIR%\%type%\%mode%\openssl-install
@@ -23,12 +29,8 @@ if defined BUILD_DIR (
     set SSLDIR=%CD%\%type%\%mode%\openssl-install
 )
 
-if "%type%" == "Static" (
-    set NTMAK=nt.mak
-) else (
-    set NTMAK=ntdll.mak
-)
-if "%mode%" == "Debug" set DEBUGOPT=debug-
+if "%type%" == "Static" set SHARED=no-shared
+if "%mode%" == "Debug" set DEBUGOPT=--debug
 
 set PATH=%PERL_DIR%;%PATH%;%ProgramFiles%\Git\usr\bin
 
@@ -37,8 +39,7 @@ call nasm -v
 call perl -v
 
 :BUILDLIB
-perl Configure %DEBUGOPT%VC-WIN64A no-shared no-asm no-zlib --prefix=%SSLDIR%
-call ms\do_win64a.bat
-nmake -f ms\%NTMAK% clean
-nmake -f ms\%NTMAK%
-nmake -f ms\%NTMAK% install
+perl "%SOURCE_DIR%\Configure" VC-WIN64A %DEBUGOPT% %SHARED% no-dynamic-engine no-asm no-idea no-mdc2 no-rc5 no-zlib no-ssl3 no-ssl3-method enable-rfc3779 enable-cms --prefix=%SSLDIR% --openssldir=%SSLDIR%\ssl
+
+nmake
+nmake install_sw

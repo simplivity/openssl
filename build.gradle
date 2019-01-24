@@ -61,6 +61,25 @@ def publishToArtifactoryDebianRepo(File debFile, String module, String repo, Str
 // Flags for Debian relationship declarations
 import org.redline_rpm.header.Flags
 
+// ==========================================================
+// This assumes all Slaves have at least VS2017 installed.
+// We install multiple VS2017 and any one would do for this.
+//
+// @param wantedVersion String representation of VS version
+// @return the installation path for the tools
+// ==========================================================
+def vsWhere(String wantedVersion) {
+    def stdout = new ByteArrayOutputStream()
+    project.exec {
+        executable 'C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe'
+        args '-latest'
+        args '-property', 'installationPath'
+        args '-version', wantedVersion
+        standardOutput = stdout
+    }
+    return stdout.toString().trim()
+}
+
 if (currentOs.linux) {
     apply plugin: "nebula.ospackage-base"
 
@@ -71,10 +90,26 @@ if (currentOs.linux) {
     [ 'Debug', 'Release' ].each { mode ->
         tasks.create(name: "makeLinux${mode}", type: Exec, group: 'Build') {
             description = "Generates the Linux ${mode} configuration"
-            outputs.dir file("$buildDir/${mode}")
 
+            def outputDir = file("$buildDir/${mode}")
+
+            inputs.files {
+                fileTree(projectDir).matching {
+                    // Exclude common directories that we drop into the project directory
+                    // to get at the full source tree contents.
+                    exclude '.gradle', 'build', 'buildDir'
+                }
+            }
+            outputs.dir outputDir
+
+            doFirst {
+                outputDir.mkdirs()
+            }
+
+            workingDir outputDir
+            environment PROJECT_DIR: projectDir
             environment BUILD_DIR: buildDir
-            executable 'util/svtbuild.sh'
+            executable file('util/svtbuild.sh')
             args mode
         }
 
@@ -124,6 +159,7 @@ if (currentOs.linux) {
             dependsOn "makeLinux${mode}"
             project.assemble.dependsOn it
 
+            // Package names must match the official Ubuntu distro package names
             packageName = (mode == 'Debug') ? 'libssl1.1-debug' : 'libssl1.1'
             packageDescription "SVT OpenSSL FIPS Debian package of libssl and libcrypto ($mode)"
             packageGroup 'libs'
@@ -336,45 +372,46 @@ if (currentOs.linux) {
     }
 } else {
     ext.buildPlatform = 'windows_x64'
+    // Build openssl with VS 2017
+    ext.toolset       = 'msvc-15.0'
 
-    // Build openssl with VS 2010, set to 'msvc-14.1' to build with VS 2017
-    ext.toolset       = 'msvc-10.0'
     [ 'Debug', 'Release' ].each { mode ->
         [ 'Shared', 'Static' ].each { type ->
             tasks.create(name: "makeWindows${type}${mode}", type: Exec, group: 'Build') {
                 description = "Generates the Windows ${type} ${mode} configuration"
-                outputs.dir file("$buildDir/${type}/${mode}")
+
+                def outputDir = file("$buildDir/${type}/${mode}")
+
+                inputs.files {
+                    fileTree(projectDir).matching {
+                        // Exclude common directories that we drop into the project directory
+                        // to get at the full source tree contents.
+                        exclude '.gradle', 'build', 'buildDir'
+                    }
+                }
+                outputs.dir outputDir
+
+                doFirst {
+                    outputDir.mkdirs()
+                }
 
                 def vcvarsall
                 switch (toolset) {
                     case 'msvc-10.0':
                         vcvarsall = 'C:\\Program Files (x86)\\Microsoft Visual Studio 10.0\\VC\\vcvarsall.bat'
                         break;
-                    case 'msvc-14.1':
-                        // VS 2017 provides a executable vswhere.exe which will provide location info about
-                        // where VS 2017 is installed; we will use this to try to get the path to vcvarsall.bat
-                        def vswhereCmd = 'c:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe'
-                        def vswhereOut = vswhereCmd.execute().text
-                        def vswhereProperty = "installationPath"
-                        def installationPath = vswhereOut.readLines().findResult { line ->
-                            (line =~ /^${vswhereProperty}: (.+)$/).with { m ->
-                                if( m.matches() ) {
-                                    m[ 0 ][ 1 ] as String
-                                }
-                            }
-                        }
-                        if (! installationPath) {
-                            throw new GradleException("ERROR: vcvarsall.bat script not found.\n" +
-                                                      "vswhere.exe output:\n${vswhereOut}")
-                        }
-                        vcvarsall = "${installationPath}\\VC\\Auxiliary\\Build\\vcvarsall.bat"
+                    case 'msvc-15.0':
+                        def vs2017Path = vsWhere('15.0')
+                        vcvarsall = "${vs2017Path}\\VC\\Auxiliary\\Build\\vcvarsall.bat"
                         break
                     default:
-                        throw new GradleException('toolset is not valid')
+                        throw new GradleException('Visual Studio toolset selected is not supported by this build')
                 }
-                workingDir projectDir
+
+                workingDir outputDir
+                environment PROJECT_DIR: projectDir
                 environment BUILD_DIR: buildDir
-                executable 'util/svtbuild.bat'
+                executable file('util/svtbuild.bat')
                 args type, mode, vcvarsall
             }
 
@@ -411,25 +448,6 @@ if (currentOs.linux) {
                 }
             }
         }
-
-        // OpenSSL Engines are created separately in the lib/engines directory and
-        // only for the shared library mode. Package them separately.
-        tasks.create(name: "assemble${mode}Engines", type: Zip, group: 'Build') {
-            description = "Assembles a zip archive of the FIPS crypto engines for ${mode} builds."
-            dependsOn "makeWindowsShared${mode}"
-            project.assemble.dependsOn it
-
-            baseName = "openssl"
-            classifier = "${buildPlatform}-engines-${mode.toLowerCase()}"
-            extension = 'zip'
-            destinationDir = file("$buildDir/distributions")
-
-            into('lib') {
-                from("$buildDir/Shared/${mode}/openssl-install/lib") {
-                    include 'engines/*.dll'
-                }
-            }
-        }
     }
 }
 
@@ -458,11 +476,14 @@ publishing {
             artifact(assembleSharedReleaseNar) {
                 conf "${buildPlatform}-shared-release"
             }
-            artifact(assembleDebugEngines) {
-                conf "${buildPlatform}-engines-debug"
-            }
-            artifact(assembleReleaseEngines) {
-                conf "${buildPlatform}-engines-release"
+            if (currentOs.linux) {
+                // Only building Linux SSL engines for now
+                artifact(assembleDebugEngines) {
+                    conf "${buildPlatform}-engines-debug"
+                }
+                artifact(assembleReleaseEngines) {
+                    conf "${buildPlatform}-engines-release"
+                }
             }
             descriptor.withXml {
                 asNode().info[0].appendNode('description', 'openssl library')
