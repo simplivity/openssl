@@ -1,8 +1,3 @@
-description = 'Gradle wrapper for OpenSSL build'
-
-apply plugin: 'base'
-apply plugin: 'ivy-publish'
-
 buildscript {
     ext.svtFunctionsVersion = '9.0.+'
     ext.osPackageVersion = '4.9.+'
@@ -22,8 +17,15 @@ buildscript {
     }
 }
 
+description = 'Gradle wrapper for OpenSSL build'
+
 group = "openssl"
 
+apply plugin: 'base'
+apply plugin: 'ivy-publish'
+
+apply plugin: 'com.simplivity.omni3p-release-meta'
+apply plugin: 'com.simplivity.visual-studio-config'
 apply plugin: 'com.simplivity.svt-functions'
 
 import groovyx.net.http.ContentType
@@ -60,25 +62,6 @@ def publishToArtifactoryDebianRepo(File debFile, String module, String repo, Str
 
 // Flags for Debian relationship declarations
 import org.redline_rpm.header.Flags
-
-// ==========================================================
-// This assumes all Slaves have at least VS2017 installed.
-// We install multiple VS2017 and any one would do for this.
-//
-// @param wantedVersion String representation of VS version
-// @return the installation path for the tools
-// ==========================================================
-def vsWhere(String wantedVersion) {
-    def stdout = new ByteArrayOutputStream()
-    project.exec {
-        executable 'C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe'
-        args '-latest'
-        args '-property', 'installationPath'
-        args '-version', wantedVersion
-        standardOutput = stdout
-    }
-    return stdout.toString().trim()
-}
 
 if (currentOs.linux) {
     apply plugin: "nebula.ospackage-base"
@@ -372,8 +355,8 @@ if (currentOs.linux) {
     }
 } else {
     ext.buildPlatform = 'windows_x64'
-    // Build openssl with VS 2017
-    ext.toolset       = 'msvc-15.0'
+    // Build openssl with VS 2010
+    ext.toolset       = 'msvc-10.0'
 
     [ 'Debug', 'Release' ].each { mode ->
         [ 'Shared', 'Static' ].each { type ->
@@ -395,24 +378,11 @@ if (currentOs.linux) {
                     outputDir.mkdirs()
                 }
 
-                def vcvarsall
-                switch (toolset) {
-                    case 'msvc-10.0':
-                        vcvarsall = 'C:\\Program Files (x86)\\Microsoft Visual Studio 10.0\\VC\\vcvarsall.bat'
-                        break;
-                    case 'msvc-15.0':
-                        def vs2017Path = vsWhere('15.0')
-                        vcvarsall = "${vs2017Path}\\VC\\Auxiliary\\Build\\vcvarsall.bat"
-                        break
-                    default:
-                        throw new GradleException('Visual Studio toolset selected is not supported by this build')
-                }
-
                 workingDir outputDir
                 environment PROJECT_DIR: projectDir
                 environment BUILD_DIR: buildDir
                 executable file('util/svtbuild.bat')
-                args type, mode, vcvarsall
+                args type, mode
             }
 
             tasks.create(name: "assemble${type}${mode}Nar", type: Zip, group: "Build") {
