@@ -355,8 +355,8 @@ if (currentOs.linux) {
     }
 } else {
     ext.buildPlatform = 'windows_x64'
-    // Build openssl with VS 2010
-    ext.toolset       = 'msvc-10.0'
+    // Build openssl with VS 2017
+    ext.toolset       = 'msvc-15.0'
 
     [ 'Debug', 'Release' ].each { mode ->
         [ 'Shared', 'Static' ].each { type ->
