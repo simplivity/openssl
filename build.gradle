@@ -400,11 +400,11 @@ if (currentOs.linux) {
                 }
                 into('bin') {
                     from "$buildDir/${type}/${mode}/openssl-install/bin"
-                    include '*.exe'
+                    include '*.exe', '*.pdb'
                 }
                 into('lib') {
                     from("$buildDir/${type}/${mode}/openssl-install/lib") {
-                        include '*.lib'
+                        include '*.lib', '*.pdb'
                     }
                     if (type == 'Static') {
                         from("$buildDir/${type}/${mode}/fips-install/lib") {
@@ -412,7 +412,7 @@ if (currentOs.linux) {
                         }
                     } else {
                         from("$buildDir/${type}/${mode}/openssl-install/bin") {
-                            include '*.dll'
+                            include '*.dll', '*.pdb'
                         }
                     }
                 }
