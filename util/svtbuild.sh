@@ -19,6 +19,10 @@ DEB_HOST_MULTIARCH=`dpkg-architecture -qDEB_HOST_MULTIARCH`
 if [ "${1}" = "Debug" ]; then
     echo "Debug build requested"
     DEBUG=" -d"
+    GCCOPTIONS=""
+fi
+if [ "${1}" = "Release" ]; then
+    GCCOPTIONS="-g -fno-stack-protector"
 fi
 
 # If we ever get a FIPS module for 1.1, this is where we would add it
@@ -37,6 +41,7 @@ HASHBANGPERL=/usr/bin/perl ${SOURCE_DIR}/config shared \
                --prefix=/usr \
                --openssldir=/usr/lib/ssl \
                --libdir=lib/${DEB_HOST_MULTIARCH} \
+               $GCCOPTIONS \
                no-idea no-mdc2 no-rc5 no-zlib no-ssl3 enable-unit-test no-ssl3-method enable-rfc3779 enable-cms ${DEBUG}
 
 make depend
